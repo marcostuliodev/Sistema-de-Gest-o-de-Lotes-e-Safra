@@ -4,15 +4,14 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { db, copyable } from "../db.js";
 import { authMiddleware } from "../auth.js";
+import { entitySchemas, sanitizeSnapshot, sanitizeText } from "../validation.js";
 
 const router = Router();
 router.use(authMiddleware);
 
 const ENTITIES = ["lotes", "plantios", "insumos", "gastos", "colheitas"];
+const MAX_OPS = 100;
 
-/** Se o registro do usuário sumiu (banco do plano gratuito é volátil), recria a
- *  conta a partir do token válido — o token continua funcionando e os dados
- *  reenviados pelo aparelho são aceitos. */
 function ensureUser(user) {
   const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(user.uid);
   if (exists) return;
@@ -48,28 +47,38 @@ function snapshot(uid) {
   for (const table of ENTITIES) {
     out[table] = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).all(uid);
   }
-  return out;
+  return sanitizeSnapshot(out);
 }
 
 router.post("/", (req, res) => {
   const uid = req.user.uid;
   ensureUser(req.user);
   const ops = Array.isArray(req.body?.ops) ? req.body.ops : [];
+  if (ops.length > MAX_OPS) {
+    return res.status(400).json({ error: `Muitos operacoes (max ${MAX_OPS})` });
+  }
   db.exec("BEGIN");
   try {
     for (const op of ops) {
       if (!ENTITIES.includes(op.entity)) continue;
+      const schema = entitySchemas[op.entity];
+      if (schema) {
+        const parsed = schema.safeParse(op.data || {});
+        if (!parsed.success) {
+          throw new Error(parsed.error.errors[0]?.message || "Dados invalidos no sync");
+        }
+      }
       applyOp(op.entity, op.action || "upsert", op.data || {}, uid);
     }
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
-    return res.status(400).json({ error: "Sincronização falhou em uma operação: " + err.message });
+    const isProd = process.env.NODE_ENV === "production";
+    return res.status(400).json({ error: isProd ? "Sincronizacao falhou" : err.message });
   }
   res.json({ ok: true, snapshot: snapshot(uid), serverTime: new Date().toISOString() });
 });
 
-// Seed demo data for a fresh account
 export { snapshot, ENTITIES };
 
 export default router;

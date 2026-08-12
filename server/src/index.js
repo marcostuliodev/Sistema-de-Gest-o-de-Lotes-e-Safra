@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -14,17 +16,73 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
-app.use(express.json());
+const IS_PROD = process.env.NODE_ENV === "production";
+
+app.disable("x-powered-by");
+
+app.use(
+  helmet({
+    hsts: IS_PROD ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    contentSecurityPolicy: IS_PROD
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+          },
+        }
+      : false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    noSniff: true,
+    frameguard: { action: "deny" },
+    xssFilter: true,
+    hidePoweredBy: true,
+  })
+);
+
+const allowedOrigins = IS_PROD
+  ? ["https://agrolote.onrender.com"]
+  : ["http://localhost:5173", "http://localhost:4000", "http://127.0.0.1:5173"];
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error("CORS nao permitido para " + origin));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+app.use(express.json({ limit: "256kb" }));
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: IS_PROD ? 10 : 100,
+  message: { error: "Muitas tentativas, tente novamente mais tarde" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+});
+
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
 
 migrate();
 
-// Banco novo? Cria conta demo com dados para visualização (só o primeiro boot).
-if (process.env.SEED_DEMO !== "false") {
+if (process.env.SEED_DEMO !== "false" && !IS_PROD) {
   const users = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
   if (users === 0) {
-    console.log("🌾 Banco novo — semeando dados demo...");
-    // usamos dynamic import porque seed.js executa tudo no carregamento
+    console.log("Banco novo — semeando dados demo...");
     import("./seed.js").catch((err) => console.error("Falha no seed:", err.message));
   } else {
     createDemoAccount();
@@ -42,15 +100,24 @@ app.use("/api/colheitas", crudRouter("colheitas"));
 app.use("/api/reports", reportsRouter);
 app.use("/api/sync", syncRouter);
 
-// Serve static PWA build if it exists (single-node deploy, works offline after install)
 const distDir = path.join(__dirname, "..", "..", "client", "dist");
 if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir));
+  app.use(express.static(distDir, { maxAge: IS_PROD ? "1y" : 0, etag: true }));
   app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
 }
 
-app.listen(PORT, async () => {
-  const demoId = createDemoAccount();
-  console.log(`🌱 Agrolote API em http://localhost:${PORT}`);
-  console.log(`   Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
+app.use((err, _req, res, _next) => {
+  console.error("Erro:", err);
+  const isProd = process.env.NODE_ENV === "production";
+  res.status(500).json({ error: isProd ? "Erro interno" : err.message });
 });
+
+app.listen(PORT, async () => {
+  if (!IS_PROD) {
+    const demoId = createDemoAccount();
+    console.log(`Agrolote API em http://localhost:${PORT}`);
+    console.log(`Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
+  }
+});
+
+export default app;

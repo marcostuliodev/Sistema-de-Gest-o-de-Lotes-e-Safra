@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
+import { sanitizeSnapshot, sanitizeRow } from "../validation.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -42,7 +43,7 @@ router.get("/dashboard", (req, res) => {
     receita_30d: revenue.receita_30d,
     lucro_total: revenue.receita_total - costs.custo_total,
     lucro_30d: revenue.receita_30d - costs.custo_30d,
-    proximas_colheitas: pending,
+    proximas_colheitas: sanitizeSnapshot({ proximas_colheitas: pending }).proximas_colheitas,
   });
 });
 
@@ -64,7 +65,7 @@ router.get("/performance", (req, res) => {
     ORDER BY receita DESC
   `).all(uid);
   const perf = rows.map((r) => ({ ...r, custo: r.custo ?? 0, lucro: (r.receita ?? 0) - (r.custo ?? 0) }));
-  res.json(perf);
+  res.json(sanitizeSnapshot({ perf }).perf);
 });
 
 export default router;
