@@ -1,0 +1,22 @@
+# Render Blueprint — deploy no plano gratuito
+# 1) Crie um repositório no GitHub com este projeto e faça push.
+# 2) No render.com: New > Blueprint > conecte o repositório > Apply.
+# Resultado: https://agrolote.onrender.com com HTTPS + PWA instalável.
+
+services:
+  - type: web
+    name: agrolote
+    runtime: node
+    plan: free
+    region: virginia
+    buildCommand: npm run install:all && npm run build --prefix client
+    startCommand: npm run start --prefix server
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SEED_DEMO
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
