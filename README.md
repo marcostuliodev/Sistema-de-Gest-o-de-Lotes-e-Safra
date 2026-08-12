@@ -2,7 +2,7 @@
 
 SaaS agrícola leve para pequenos/médios produtores: cadastre lotes, planeje plantios, controle insumos/gastos, registre colheitas e veja relatórios de custo/lucro — **100% offline** via PWA + IndexedDB, com sincronização resiliente quando a conexão volta.
 
-Deploy gratuito no Render: **https://agrolote.onrender.com**
+Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 
 ---
 
