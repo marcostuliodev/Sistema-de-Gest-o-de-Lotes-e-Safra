@@ -79,7 +79,7 @@ app.use("/api/auth/register", authLimiter);
 
 migrate();
 
-if (process.env.SEED_DEMO !== "false" && !IS_PROD) {
+if (process.env.SEED_DEMO !== "false") {
   const users = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
   if (users === 0) {
     console.log("Banco novo — semeando dados demo...");
