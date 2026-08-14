@@ -42,7 +42,7 @@ export default function Layout() {
   const synced = pendingSync === 0 && online;
 
   return (
-    <div className="flex min-h-dvh flex-col lg:flex-row">
+    <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
       {/* Sidebar (somente desktop) */}
       <aside className="hidden lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-stone-200 lg:bg-white">
         <div className="flex items-center gap-2 px-5 py-5">
