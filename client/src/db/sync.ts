@@ -47,10 +47,11 @@ async function buildOps(): Promise<SyncOp[]> {
 }
 
 async function commit(result: { snapshot: any; serverTime: string }) {
-  await db.transaction("rw", db.outbox, async () => {
-    await mergeLocalWith(result.snapshot);
-    await db.outbox.clear();
-  });
+  // mergeLocalWith já abre sua própria transação. Não podemos aninhar uma
+  // transação de outbox-only aqui, senão o Dexie lança erro ao tocar as
+  // outras tabelas e o outbox nunca é limpo (UI fica "Sincronizando" p/ sempre).
+  await mergeLocalWith(result.snapshot);
+  await db.outbox.clear();
   await db.meta.put({ key: "last_sync", value: result.serverTime });
   window.dispatchEvent(new CustomEvent("agrolote:synced"));
 }
