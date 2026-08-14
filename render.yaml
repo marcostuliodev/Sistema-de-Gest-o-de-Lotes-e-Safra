@@ -32,6 +32,6 @@ services:
         generateValue: true
       - key: DATABASE_URL
         fromService:
-          type: pgbouncer
+          type: connectionString
           name: agrolote-db
           property: connectionString
