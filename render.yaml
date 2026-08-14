@@ -11,6 +11,7 @@ databases:
     databaseName: agrolote
     user: agrolote
     plan: free
+    region: virginia
     postgresMajorVersion: 16
 
 services:
