@@ -74,7 +74,7 @@ export interface WeatherAlert {
 export interface WeatherResponse {
   location: { city: string | null; lat: number; lon: number; tz: string | null };
   weather: {
-    location: { latitude: number; longitude: number; timezone: string; timezone_abbreviation: string };
+    location: { latitude: number; longitude: number; timezone: string; timezone_abbreviation: string; utc_offset_seconds: number };
     current: WeatherCurrent;
     hourly: WeatherHour[];
     daily: WeatherDay[];
@@ -168,11 +168,44 @@ export function windDir(deg?: number): string {
   return DIRS[Math.round(deg / 22.5) % 16];
 }
 
-export function fmtHour(time: string): string {
+// Converte um horário recebido (em horário local da propriedade, com o offset
+// informado) para o fuso horário do dispositivo do usuário.
+export function fmtHour(time: string, offsetSeconds?: number): string {
+  if (!time) return "";
+  // Timestamp absoluto (com Z ou offset) -> já formata no fuso do dispositivo.
+  if (/[Zz]$|\+\d{2}:\d{2}$|-\d{2}:\d{2}$/.test(time)) {
+    const d = new Date(time);
+    if (!isNaN(d.getTime())) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+  // Horário de parede da propriedade -> converte para o fuso do dispositivo.
+  if (offsetSeconds != null) {
+    const asUTC = new Date(time.length === 16 ? time + ":00Z" : time + "Z");
+    if (!isNaN(asUTC.getTime())) {
+      return new Date(asUTC.getTime() - offsetSeconds * 1000).toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
   return time.slice(11, 16);
 }
 
-export function fmtDay(date: string): string {
+export function fmtDay(date: string, offsetSeconds?: number): string {
+  // Timestamp absoluto -> fuso do dispositivo.
+  if (/[Zz]$|\+\d{2}:\d{2}$|-\d{2}:\d{2}$/.test(date)) {
+    const d = new Date(date);
+    if (!isNaN(d.getTime())) return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  }
+  if (offsetSeconds != null) {
+    const asUTC = new Date(date.length >= 11 && date[10] === "T" ? date : date + "T00:00:00Z");
+    if (!isNaN(asUTC.getTime())) {
+      return new Date(asUTC.getTime() - offsetSeconds * 1000).toLocaleDateString("pt-BR", {
+        weekday: "short",
+        day: "2-digit",
+        month: "2-digit",
+      });
+    }
+  }
   const d = new Date(date + "T00:00:00");
-  return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  return isNaN(d.getTime()) ? date : d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
 }

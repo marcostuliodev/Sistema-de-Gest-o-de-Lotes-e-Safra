@@ -253,6 +253,7 @@ export default function Clima() {
   const cur = weather?.current;
   const today = weather?.daily?.[0];
   const code = cur ? describeWeatherCode(cur.weather_code) : null;
+  const tzOffset = weather?.location.utc_offset_seconds ?? 0;
 
   return (
     <div className="space-y-5">
@@ -294,7 +295,7 @@ export default function Clima() {
           <Detail label="Nebulosidade" value={`${cur.cloud_cover}%`} />
           <Detail label="UV" value={`${cur.uv_index ?? "—"}`} />
           <Detail label="Chuva agora" value={`${cur.precipitation.toFixed(1)} mm`} />
-          <Detail label="Sol" value={`↑${fmtHour(today?.sunrise || "")} ↓${fmtHour(today?.sunset || "")}`} />
+          <Detail label="Sol" value={`↑${fmtHour(today?.sunrise || "", tzOffset)} ↓${fmtHour(today?.sunset || "", tzOffset)}`} />
         </div>
       )}
 
@@ -312,7 +313,7 @@ export default function Clima() {
               </span>
             </div>
           </div>
-          <WeatherChart hourly={weather.hourly} />
+          <WeatherChart hourly={weather.hourly} offset={tzOffset} />
         </Card>
       )}
 
@@ -386,7 +387,7 @@ export default function Clima() {
               const c = describeWeatherCode(h.weather_code);
               return (
                 <div key={h.time} className="min-w-[64px] rounded-xl border border-stone-100 p-2 text-center">
-                  <p className="text-xs text-stone-400">{fmtHour(h.time)}</p>
+                  <p className="text-xs text-stone-400">{fmtHour(h.time, tzOffset)}</p>
                   <p className="text-2xl">{c.icon}</p>
                   <p className="text-sm font-semibold text-stone-800">{h.temperature_2m.toFixed(0)}°</p>
                   {h.precipitation_probability != null && h.precipitation_probability > 0 && (
@@ -411,7 +412,7 @@ export default function Clima() {
                   <div className="flex items-center gap-3">
                     <span className="text-2xl">{c.icon}</span>
                     <div>
-                      <p className="font-medium text-stone-800">{fmtDay(d.date)}</p>
+                      <p className="font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
                       <p className="text-xs text-stone-400">{c.label}</p>
                     </div>
                   </div>
@@ -461,7 +462,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function WeatherChart({ hourly }: { hourly: WeatherResponse["weather"]["hourly"] }) {
+function WeatherChart({ hourly, offset }: { hourly: WeatherResponse["weather"]["hourly"]; offset: number }) {
   const data = hourly.slice(0, 24);
   if (data.length < 2) return null;
   const W = 320;
@@ -496,7 +497,7 @@ function WeatherChart({ hourly }: { hourly: WeatherResponse["weather"]["hourly"]
       <polyline points={tempLine} fill="none" stroke="#16a34a" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       {labelIdx.map((i) => (
         <text key={i} x={x(i)} y={H - 4} textAnchor="middle" className="fill-stone-400" fontSize="9">
-          {fmtHour(data[i].time)}
+          {fmtHour(data[i].time, offset)}
         </text>
       ))}
     </svg>

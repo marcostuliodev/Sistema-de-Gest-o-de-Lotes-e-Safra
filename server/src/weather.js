@@ -116,6 +116,7 @@ export async function fetchWeather(lat, lon, tz = "auto") {
       longitude: lon,
       timezone: data.timezone,
       timezone_abbreviation: data.timezone_abbreviation,
+      utc_offset_seconds: data.utc_offset_seconds ?? 0,
     },
     current,
     hourly,
