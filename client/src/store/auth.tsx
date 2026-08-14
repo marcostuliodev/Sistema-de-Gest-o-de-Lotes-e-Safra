@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { getSession, login, register, setSession, type AuthSession } from "../db/api";
+import { getSession, login, register, setSession, logout, type AuthSession } from "../db/api";
 import { db } from "../db/db";
 import { pullServer } from "../db/sync";
 
@@ -66,6 +66,7 @@ const doLogin = async (email: string, pass: string) => {
     await pullServer().catch(() => undefined);
   };
   const doLogout = () => {
+    void logout();
     setSession(null);
     setSessionState(null);
     void db.outbox.clear();

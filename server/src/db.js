@@ -1,10 +1,27 @@
 import pg from "pg";
+import fs from "node:fs";
 
 const connStr = process.env.DATABASE_URL;
-const ssl =
-  connStr && (connStr.includes("render.com") || connStr.includes("sslmode=require"))
-    ? { rejectUnauthorized: false }
-    : undefined;
+
+// TLS para o PostgreSQL. Por padrão mantemos rejectUnauthorized=false (protege
+// contra sniffing, mas não contra MITM). Para mitigar MITM de ponta a ponta,
+// defina PGSSLROOTCERT apontando para o CA da Render — a validação de certificado
+// é ativada automaticamente (rejectUnauthorized=true).
+const ssl = (() => {
+  if (!connStr) return undefined;
+  const wantsTls = connStr.includes("render.com") || connStr.includes("sslmode=require");
+  if (!wantsTls) return undefined;
+  const caPath = process.env.PGSSLROOTCERT;
+  if (caPath) {
+    try {
+      return { rejectUnauthorized: true, ca: fs.readFileSync(caPath) };
+    } catch (e) {
+      console.error(`[db] PGSSLROOTCERT definido mas ilegível (${caPath}): ${e.message}`);
+    }
+  }
+  console.warn("[db] TLS sem validação de certificado (rejectUnauthorized=false). Defina PGSSLROOTCERT com o CA da Render para mitigar ataque MITM.");
+  return { rejectUnauthorized: false };
+})();
 
 const pool = new pg.Pool({
   connectionString: connStr,

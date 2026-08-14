@@ -1,5 +1,3 @@
-import { getSession } from "../db/api";
-
 export function isPushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -10,10 +8,7 @@ export function isPushSupported(): boolean {
 }
 
 async function getVapid(): Promise<string> {
-  const session = getSession();
-  const res = await fetch("/api/push/vapid", {
-    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
-  });
+  const res = await fetch("/api/push/vapid", { credentials: "include" });
   if (!res.ok) throw new Error("Falha ao obter chave VAPID");
   const data = await res.json();
   return data.publicKey;
@@ -41,10 +36,10 @@ export async function subscribePush(): Promise<void> {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapid),
   });
-  const session = getSession();
   const res = await fetch("/api/push/subscribe", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session!.token}` },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ endpoint: sub.endpoint, keys: sub.toJSON().keys }),
   });
   if (!res.ok) throw new Error("Falha ao salvar inscrição");
@@ -54,10 +49,10 @@ export async function unsubscribePush(): Promise<void> {
   const reg = await navigator.serviceWorker.ready;
   const sub = await reg.pushManager.getSubscription();
   if (sub) {
-    const session = getSession();
     await fetch("/api/push/unsubscribe", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session!.token}` },
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ endpoint: sub.endpoint }),
     }).catch(() => {});
     await sub.unsubscribe();
@@ -71,10 +66,9 @@ export async function getExistingSubscription(): Promise<PushSubscription | null
 }
 
 export async function sendTestPush(): Promise<void> {
-  const session = getSession();
   const res = await fetch("/api/push/test", {
     method: "POST",
-    headers: { Authorization: `Bearer ${session!.token}` },
+    credentials: "include",
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));

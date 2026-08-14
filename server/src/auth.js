@@ -21,9 +21,51 @@ export function signToken(user) {
   });
 }
 
-export function authMiddleware(req, res, next) {
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  const out = {};
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    out[k] = decodeURIComponent(v);
+  }
+  return out;
+}
+
+// Preferencialmente o token vem do cookie HttpOnly (inacessível via JS/XSS).
+// Mantemos compatibilidade com o header Authorization para clientes legados.
+function getTokenFromReq(req) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (header.startsWith("Bearer ")) return header.slice(7);
+  const cookies = parseCookies(req);
+  return cookies.agrolote_token || null;
+}
+
+const TOKEN_MAX_AGE = 7 * 24 * 3600; // 7d, alinhado com JWT_TTL
+
+export function setAuthCookie(res, token) {
+  const attrs = [
+    `agrolote_token=${token}`,
+    "HttpOnly",
+    "SameSite=Strict",
+    "Path=/",
+    `Max-Age=${TOKEN_MAX_AGE}`,
+  ];
+  if (process.env.NODE_ENV === "production") attrs.push("Secure");
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+export function clearAuthCookie(res) {
+  const attrs = ["agrolote_token=", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=0"];
+  if (process.env.NODE_ENV === "production") attrs.push("Secure");
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+export function authMiddleware(req, res, next) {
+  const token = getTokenFromReq(req);
   if (!token) return res.status(401).json({ error: "Nao autenticado" });
   try {
     req.user = jwt.verify(token, JWT_SECRET, {

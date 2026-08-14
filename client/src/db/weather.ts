@@ -1,4 +1,3 @@
-import { getSession } from "./api";
 import { db } from "./db";
 
 export interface GeoResult {
@@ -83,13 +82,11 @@ export interface WeatherResponse {
 }
 
 async function authed(path: string, options: RequestInit = {}) {
-  const session = getSession();
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
-  if (session) headers.Authorization = `Bearer ${session.token}`;
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, { ...options, headers, credentials: "include" });
   if (!res.ok) {
-    const d = await res.json().catch(() => ({}));
-    throw new Error(d.error || "Erro na requisição");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || "Erro na requisição");
   }
   return res.json();
 }

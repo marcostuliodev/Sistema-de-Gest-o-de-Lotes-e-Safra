@@ -5,15 +5,15 @@ export interface AuthSession {
   user: { id: number; name: string; email: string };
 }
 
-const TOKEN_KEY = "agrolote_token";
 const USER_KEY = "agrolote_user";
 
+// O token JWT NÃO é mais persistido no localStorage (inacessível via JS após a
+// migração para cookie HttpOnly). Mantemos apenas os dados do usuário para a UI.
 export function getSession(): AuthSession | null {
-  const token = localStorage.getItem(TOKEN_KEY);
   const rawUser = localStorage.getItem(USER_KEY);
-  if (!token || !rawUser) return null;
+  if (!rawUser) return null;
   try {
-    return { token, user: JSON.parse(rawUser) };
+    return { token: "", user: JSON.parse(rawUser) };
   } catch {
     return null;
   }
@@ -21,19 +21,16 @@ export function getSession(): AuthSession | null {
 
 export function setSession(s: AuthSession | null) {
   if (s) {
-    localStorage.setItem(TOKEN_KEY, s.token);
     localStorage.setItem(USER_KEY, JSON.stringify(s.user));
   } else {
-    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
   }
 }
 
 async function request(path: string, options: RequestInit = {}): Promise<Response> {
-  const session = getSession();
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
-  if (session) headers.Authorization = `Bearer ${session.token}`;
-  const res = await fetch(path, { ...options, headers });
+  // Autenticação via cookie HttpOnly (enviado automaticamente pelo navegador).
+  const res = await fetch(path, { ...options, headers, credentials: "include" });
   if (res.status === 401 && !path.includes("/auth/login")) {
     setSession(null);
     window.dispatchEvent(new CustomEvent("agrolote:logout"));
@@ -46,6 +43,7 @@ export async function login(email: string, password: string): Promise<AuthSessio
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
+    credentials: "include",
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Falha no login");
@@ -58,11 +56,16 @@ export async function register(name: string, email: string, password: string): P
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, email, password }),
+    credentials: "include",
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Falha no cadastro");
   setSession(data);
   return data;
+}
+
+export async function logout() {
+  await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
 }
 
 export async function pushSync(ops: SyncOp[]): Promise<{ snapshot: Snapshot; serverTime: string } | null> {
