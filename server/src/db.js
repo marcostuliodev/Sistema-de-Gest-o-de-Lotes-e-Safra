@@ -1,81 +1,152 @@
-import { DatabaseSync } from "node:sqlite";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import pg from "pg";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, "..", "data");
-fs.mkdirSync(dataDir, { recursive: true });
+const connStr = process.env.DATABASE_URL;
+const ssl =
+  connStr && (connStr.includes("render.com") || connStr.includes("sslmode=require"))
+    ? { rejectUnauthorized: false }
+    : undefined;
 
-export const db = new DatabaseSync(path.join(dataDir, "agrolote.db"));
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA foreign_keys = ON");
+const pool = new pg.Pool({
+  connectionString: connStr,
+  ssl,
+  max: 10,
+});
 
-export function migrate() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+// Converte "?" (estilo SQLite) em "$1, $2, ..." (estilo pg).
+function toPg(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
 
-    CREATE TABLE IF NOT EXISTS lotes (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      nome TEXT NOT NULL,
-      tipo TEXT NOT NULL DEFAULT 'talhao',
-      area REAL,
-      localizacao TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+function makePrepared(client) {
+  return (sql) => {
+    const pgSql = toPg(sql);
+    return {
+      async get(...params) {
+        const r = await client.query(pgSql, params);
+        return r.rows[0];
+      },
+      async all(...params) {
+        const r = await client.query(pgSql, params);
+        return r.rows;
+      },
+      async run(...params) {
+        const r = await client.query(pgSql, params);
+        return { lastInsertRowid: r.rows[0]?.id, changes: r.rowCount ?? 0 };
+      },
+    };
+  };
+}
 
-    CREATE TABLE IF NOT EXISTS plantios (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      lote_id TEXT NOT NULL REFERENCES lotes(id) ON DELETE CASCADE,
-      cultura TEXT NOT NULL,
-      cultivar TEXT,
-      data_plantio TEXT NOT NULL,
-      data_colheita_prevista TEXT,
-      qtd_plantada REAL,
-      unidade TEXT DEFAULT 'un',
-      status TEXT NOT NULL DEFAULT 'ativo',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+export function prepare(sql) {
+  return makePrepared(pool)(sql);
+}
 
-    CREATE TABLE IF NOT EXISTS insumos (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      nome TEXT NOT NULL,
-      categoria TEXT,
-      unidade TEXT DEFAULT 'un'
-    );
+export const db = {
+  prepare,
+  async exec(sql) {
+    await pool.query(sql);
+  },
+  pool,
+};
 
-    CREATE TABLE IF NOT EXISTS gastos (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      plantio_id TEXT NOT NULL REFERENCES plantios(id) ON DELETE CASCADE,
-      insumo_id TEXT REFERENCES insumos(id) ON DELETE SET NULL,
-      descricao TEXT,
-      quantidade REAL NOT NULL DEFAULT 1,
-      valor_unitario REAL NOT NULL DEFAULT 0,
-      data TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+const MIGRATION = `
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
 
-    CREATE TABLE IF NOT EXISTS colheitas (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      plantio_id TEXT NOT NULL REFERENCES plantios(id) ON DELETE CASCADE,
-      data TEXT NOT NULL,
-      quantidade REAL NOT NULL,
-      unidade TEXT DEFAULT 'kg',
-      preco_venda REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
+CREATE TABLE IF NOT EXISTS lotes (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  tipo TEXT NOT NULL DEFAULT 'talhao',
+  area REAL,
+  localizacao TEXT,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+
+CREATE TABLE IF NOT EXISTS plantios (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  lote_id TEXT NOT NULL REFERENCES lotes(id) ON DELETE CASCADE,
+  cultura TEXT NOT NULL,
+  cultivar TEXT,
+  data_plantio TEXT NOT NULL,
+  data_colheita_prevista TEXT,
+  qtd_plantada REAL,
+  unidade TEXT DEFAULT 'un',
+  status TEXT NOT NULL DEFAULT 'ativo',
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+
+CREATE TABLE IF NOT EXISTS insumos (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  categoria TEXT,
+  unidade TEXT DEFAULT 'un'
+);
+
+CREATE TABLE IF NOT EXISTS gastos (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plantio_id TEXT NOT NULL REFERENCES plantios(id) ON DELETE CASCADE,
+  insumo_id TEXT REFERENCES insumos(id) ON DELETE SET NULL,
+  descricao TEXT,
+  quantidade REAL NOT NULL DEFAULT 1,
+  valor_unitario REAL NOT NULL DEFAULT 0,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+
+CREATE TABLE IF NOT EXISTS colheitas (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plantio_id TEXT NOT NULL REFERENCES plantios(id) ON DELETE CASCADE,
+  data TEXT NOT NULL,
+  quantidade REAL NOT NULL,
+  unidade TEXT DEFAULT 'kg',
+  preco_venda REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+`;
+
+export async function migrate() {
+  const stmts = MIGRATION.split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const s of stmts) {
+    await pool.query(s);
+  }
+}
+
+// Garante que a sequence de users acompanhe ids inseridos manualmente
+// (usado no sync, onde o id vem do cliente).
+export async function bumpUsersSequence() {
+  await pool.query(
+    "SELECT setval(pg_get_serial_sequence('users','id'), COALESCE((SELECT MAX(id) FROM users), 1))"
+  );
+}
+
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query("BEGIN");
+    const t = { prepare: makePrepared(client), exec: async (s) => client.query(s) };
+    result = await fn(t);
+    await client.query("COMMIT");
+    return result;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export const requiredFor = {

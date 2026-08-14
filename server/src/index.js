@@ -77,17 +77,21 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
-migrate();
+async function bootstrap() {
+  await migrate();
 
-if (process.env.SEED_DEMO !== "false") {
-  const users = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
-  if (users === 0) {
-    console.log("Banco novo — semeando dados demo...");
-    import("./seed.js").catch((err) => console.error("Falha no seed:", err.message));
-  } else {
-    createDemoAccount();
+  if (process.env.SEED_DEMO !== "false") {
+    const users = await db.prepare("SELECT COUNT(*) AS c FROM users").get();
+    if (users.c === 0) {
+      console.log("Banco novo — semeando dados demo...");
+      const { seed } = await import("./seed.js");
+      await seed();
+    } else {
+      await createDemoAccount();
+    }
   }
 }
+bootstrap().catch((err) => console.error("Falha na inicialização:", err.message));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString() }));
 
@@ -114,7 +118,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, async () => {
   if (!IS_PROD) {
-    const demoId = createDemoAccount();
+    const demoId = await createDemoAccount();
     console.log(`Agrolote API em http://localhost:${PORT}`);
     console.log(`Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
   }

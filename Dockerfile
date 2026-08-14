@@ -1,5 +1,5 @@
 # O mesmo sistema em container Docker (alt. para Render runtime Docker, VPS, Oracle free tier, etc.)
-# node:sqlite requer Node >= 22 (embutido, sem compilação nativa).
+# Banco PostgreSQL (via DATABASE_URL). Node >= 22.
 FROM node:22-alpine
 
 WORKDIR /app

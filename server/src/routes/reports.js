@@ -6,30 +6,30 @@ import { sanitizeSnapshot, sanitizeRow } from "../validation.js";
 const router = Router();
 router.use(authMiddleware);
 
-router.get("/dashboard", (req, res) => {
+router.get("/dashboard", async (req, res) => {
   const uid = req.user.uid;
 
-  const active = db.prepare("SELECT COUNT(*) c FROM plantios WHERE user_id = ? AND status = 'ativo'").get(uid).c;
-  const lotes = db.prepare("SELECT COUNT(*) c FROM lotes WHERE user_id = ?").get(uid).c;
-  const harvests = db.prepare("SELECT COUNT(*) c FROM colheitas WHERE user_id = ?").get(uid).c;
+  const active = (await db.prepare("SELECT COUNT(*) c FROM plantios WHERE user_id = ? AND status = 'ativo'").get(uid)).c;
+  const lotes = (await db.prepare("SELECT COUNT(*) c FROM lotes WHERE user_id = ?").get(uid)).c;
+  const harvests = (await db.prepare("SELECT COUNT(*) c FROM colheitas WHERE user_id = ?").get(uid)).c;
 
-  const pending = db.prepare(`
+  const pending = await db.prepare(`
     SELECT p.*, l.nome AS lote_nome
     FROM plantios p JOIN lotes l ON l.id = p.lote_id
     WHERE p.user_id = ? AND p.status NOT IN ('colhido','perdido')
-      AND p.data_colheita_prevista IS NOT NULL AND date(p.data_colheita_prevista) >= date('now')
-    ORDER BY date(p.data_colheita_prevista) LIMIT 25
+      AND p.data_colheita_prevista IS NOT NULL AND p.data_colheita_prevista::date >= CURRENT_DATE
+    ORDER BY p.data_colheita_prevista::date LIMIT 25
   `).all(uid);
 
-  const costs = db.prepare(`
+  const costs = await db.prepare(`
     SELECT COALESCE(SUM(g.quantidade * g.valor_unitario), 0) AS custo_total,
-           COALESCE(SUM(CASE WHEN date(g.data) >= date('now','-30 days') THEN g.quantidade * g.valor_unitario ELSE 0 END), 0) AS custo_30d
+           COALESCE(SUM(CASE WHEN g.data::date >= (CURRENT_DATE - INTERVAL '30 days') THEN g.quantidade * g.valor_unitario ELSE 0 END), 0) AS custo_30d
     FROM gastos g WHERE g.user_id = ?
   `).get(uid);
 
-  const revenue = db.prepare(`
+  const revenue = await db.prepare(`
     SELECT COALESCE(SUM(c.quantidade * c.preco_venda), 0) AS receita_total,
-           COALESCE(SUM(CASE WHEN date(c.data) >= date('now','-30 days') THEN c.quantidade * c.preco_venda ELSE 0 END), 0) AS receita_30d
+           COALESCE(SUM(CASE WHEN c.data::date >= (CURRENT_DATE - INTERVAL '30 days') THEN c.quantidade * c.preco_venda ELSE 0 END), 0) AS receita_30d
     FROM colheitas c WHERE c.user_id = ?
   `).get(uid);
 
@@ -47,9 +47,9 @@ router.get("/dashboard", (req, res) => {
   });
 });
 
-router.get("/performance", (req, res) => {
+router.get("/performance", async (req, res) => {
   const uid = req.user.uid;
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT p.cultura,
            COUNT(DISTINCT p.id) AS plantios,
            COALESCE(SUM(c.quantidade), 0) AS rendimento,

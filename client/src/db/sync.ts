@@ -1,4 +1,4 @@
-import { db, isOnline, replaceLocalWith } from "./db";
+import { db, isOnline, mergeLocalWith } from "./db";
 import { pushSync } from "./api";
 import type { EntityName, SyncOp } from "./types";
 import type { Table } from "dexie";
@@ -48,7 +48,7 @@ async function buildOps(): Promise<SyncOp[]> {
 
 async function commit(result: { snapshot: any; serverTime: string }) {
   await db.transaction("rw", db.outbox, async () => {
-    await replaceLocalWith(result.snapshot);
+    await mergeLocalWith(result.snapshot);
     await db.outbox.clear();
   });
   await db.meta.put({ key: "last_sync", value: result.serverTime });

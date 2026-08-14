@@ -35,7 +35,7 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 | **Headers de segurança ausentes** | ✅ Completos | **Helmet** com: HSTS (1 ano + preload), CSP strict (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `COOP`, `CORP`, `hidePoweredBy` |
 | **CORS aberto (`*`)** | ✅ Restrito | Apenas `https://agrolote.onrender.com` em produção; credenciais permitidas |
 | **DoS via payload gigante (sync)** | ✅ Limitado | `express.json({ limit: "256kb" })` + **máx 100 ops** por request de sync |
-| **SQL Injection** | ✅ Prevenido | **Prepared statements** nativos do `node:sqlite` + validação Zod antes de tocar no DB |
+| **SQL Injection** | ✅ Prevenido | **Prepared statements** (`pg`, parâmetros `$1,$2…`) + validação Zod antes de tocar no DB |
 | **Vazamento de erro interno** | ✅ Genérico | Em produção: `"Sincronização falhou"` sem stack trace; dev vê mensagem real |
 | **Path traversal** | ✅ Não explorável | SPA fallback só serve `index.html`; arquivos estáticos com `express.static` seguro |
 
@@ -61,7 +61,7 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 │  VALIDAÇÃO ZOD (por entidade)                               │
 │  - tipos, ranges, formatos, sanitização XSS no output       │
 ├─────────────────────────────────────────────────────────────┤
-│  PREPARED STATEMENTS (node:sqlite)                          │
+│  PREPARED STATEMENTS (pg / PostgreSQL)                      │
 │  - zero concatenação de SQL                                 │
 ├─────────────────────────────────────────────────────────────┤
 │  SANITIZAÇÃO DE SAÍDA                                       │
@@ -75,9 +75,9 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 
 | Camada | Tecnologia | Versão |
 |--------|------------|--------|
-| **Runtime** | Node.js | ≥ 22 (LTS) — `node:sqlite` nativo |
+| **Runtime** | Node.js | ≥ 22 (LTS) |
 | **API** | Express | 4.21 |
-| **Banco** | SQLite (WAL + FK) | `node:sqlite` `DatabaseSync` |
+| **Banco** | PostgreSQL | Render Postgres (free) via `DATABASE_URL` — persistente |
 | **Auth** | JWT (HS256) + bcryptjs | 9.0 / 2.4 |
 | **Validação** | Zod | 3.25 |
 | **Segurança** | Helmet, express-rate-limit | 8.3 / 8.6 |
@@ -175,7 +175,15 @@ PORT=4000
 JWT_SECRET=seu-secret-super-seguro-aqui
 JWT_TTL=7d
 SEED_DEMO=true
+# OBRIGATÓRIO — aponte para um PostgreSQL (local ou Render).
+# Ex.: Docker local -> postgres://postgres:postgres@localhost:5432/agrolote
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/agrolote
 ```
+
+> ⚠️ O banco é **PostgreSQL** (não mais SQLite). Em produção o Render cria o
+> banco automaticamente via `render.yaml`. Para desenvolvimento local, suba um
+> Postgres (ex.: `docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres`)
+> e defina `DATABASE_URL`.
 
 ---
 

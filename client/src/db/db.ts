@@ -44,13 +44,15 @@ export async function localDelete(entity: keyof AgroloteDB, id: string) {
   await (db[entity] as Table<{ id: string }, string>).delete(id);
 }
 
-export async function replaceLocalWith(snapshot: Snapshot) {
+/**
+ * Faz merge (upsert) do snapshot do servidor no banco local, SEM apagar o que
+ * já existe no aparelho. Isso garante que um servidor vazio/volátil (ex.: disco
+ * efêmero do Render free) jamais destrua os dados locais durante a sincronização.
+ * Registros deletados em outro aparelho podem demorar a sumir aqui — priorizamos
+ * não perder dados do produtor.
+ */
+export async function mergeLocalWith(snapshot: Snapshot) {
   await db.transaction("rw", db.lotes, db.plantios, db.insumos, db.gastos, db.colheitas, async () => {
-    await db.lotes.clear();
-    await db.plantios.clear();
-    await db.insumos.clear();
-    await db.gastos.clear();
-    await db.colheitas.clear();
     await db.lotes.bulkPut(snapshot.lotes ?? []);
     await db.plantios.bulkPut(snapshot.plantios ?? []);
     await db.insumos.bulkPut(snapshot.insumos ?? []);
