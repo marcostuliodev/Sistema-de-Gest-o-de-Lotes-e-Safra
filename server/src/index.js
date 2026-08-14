@@ -115,8 +115,7 @@ if (fs.existsSync(distDir)) {
 
 app.use((err, _req, res, _next) => {
   console.error("Erro:", err);
-  // TEMPORÁRIO (debug): expõe a mensagem real do erro para diagnosticar o 500.
-  res.status(500).json({ error: err?.message || "Erro interno" });
+  res.status(500).json({ error: "Erro interno" });
 });
 
 app.listen(PORT, async () => {
