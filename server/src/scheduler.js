@@ -21,11 +21,14 @@ export async function getCronKey() {
 }
 
 // Imprime a chave no log de startup para o produtor copiar p/ o agendador.
+// A chave completa NUNCA é exposta em log (apenas os 4 últimos caracteres),
+// evitando vazamento de segredo em agregadores de log (Render, etc.).
 export async function logCronKey() {
   const key = await getCronKey();
   const base = process.env.PUBLIC_URL || "https://agrolote.marcostuliogc.com.br";
-  console.log(`[cron] CRON_KEY em uso: ${key}`);
-  console.log(`[cron] Agende o push 24/7 com: GET ${base}/api/cron/weather?key=${key}`);
+  const masked = key && key.length > 4 ? "****" + key.slice(-4) : "****";
+  console.log(`[cron] CRON_KEY em uso: ${masked} (valor completo disponível no painel da Render / env CRON_KEY)`);
+  console.log(`[cron] Agende o push 24/7 com: GET ${base}/api/cron/weather?key=<CRON_KEY>`);
 }
 
 // Verifica o clima de todos os usuários com localização + inscrição de push e

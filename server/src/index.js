@@ -57,7 +57,7 @@ app.use(
 );
 
 const allowedOrigins = IS_PROD
-  ? ["https://agrolote.onrender.com"]
+  ? ["https://agrolote.onrender.com", "https://agrolote.marcostuliogc.com.br"]
   : ["http://localhost:5173", "http://localhost:4000", "http://127.0.0.1:5173"];
 
 app.use(

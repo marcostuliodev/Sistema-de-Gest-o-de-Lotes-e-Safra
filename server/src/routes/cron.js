@@ -1,7 +1,18 @@
 import { Router } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { runWeatherChecks, getCronKey } from "../scheduler.js";
 
 const router = Router();
+
+// Comparação à prova de ataque de temporização (timing-safe). Evita que um
+// atacante infira o CRON_KEY byte a byte medindo o tempo de resposta.
+function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 // Disparado por um agendador externo (ex.: GitHub Actions / cron-job.org) para
 // rodar as verificações de clima mesmo quando o Render "dorme" o free tier.
@@ -15,7 +26,9 @@ router.get("/weather", async (req, res) => {
     /* db pode estar indisponível momentaneamente */
   }
   const dev = process.env.NODE_ENV !== "production";
-  if (provided !== cronKey && !(dev && !cronKey)) {
+  const keyMatches = safeEqual(provided, cronKey);
+  const devBypass = dev && !cronKey;
+  if (!keyMatches && !devBypass) {
     return res.status(401).json({ error: "unauthorized" });
   }
   try {
