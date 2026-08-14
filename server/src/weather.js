@@ -166,8 +166,8 @@ const STORM_CODES = [95, 96, 99];
 
 // Gera alertas acionáveis para o produtor a partir do clima normalizado.
 
-// Só alerta de chuva acima deste acumulado (mm). Ajuste conforme a necessidade.
-const RAIN_MM_THRESHOLD = 1.0;
+// Só alerta de chuva acima deste acumulado (mm). 0.5mm já capta garoa/baguada leve.
+const RAIN_MM_THRESHOLD = 0.5;
 
 export function evaluateAlerts(weather) {
   const alerts = [];
@@ -296,8 +296,13 @@ export const ALERT_DEBOUNCE = {
 // Alertas de severidade baixa só aparecem no app; não viram push.
 export const PUSHABLE_SEVERITY = ["medium", "high"];
 
-// Tipos/severidades que realmente viram push. "nublado" é informativo, mas o
-// produtor pediu para também recebê-lo (usa o debounce de severidade baixa).
+// Tipos/severidades que realmente viram push. "nublado" e "chuva" (inclui a
+// garoa/baguada leve) foram pedidos pelo produtor para também serem recebidos
+// no celular (usam o debounce de severidade baixa = no máx. 1x a cada 12h).
 export function isPushable(alert) {
-  return PUSHABLE_SEVERITY.includes(alert.severity) || alert.type === "nublado";
+  return (
+    PUSHABLE_SEVERITY.includes(alert.severity) ||
+    alert.type === "nublado" ||
+    alert.type === "chuva"
+  );
 }

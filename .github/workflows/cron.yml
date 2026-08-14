@@ -1,0 +1,21 @@
+name: Weather push cron
+
+# Dispara as verificações de clima a cada 14 min para manter o push 24/7 mesmo
+# no plano free da Render (que "dorme" após 15 min ocioso). Também acorda a
+# instância. Configure os secrets no repo:
+#   SITE_URL  = https://agrolote.marcostuliogc.com.br
+#   CRON_KEY  = valor gerado em Environment > CRON_KEY no Render
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar verificação de clima
+        run: curl -fsS "$SITE_URL/api/cron/weather?key=$CRON_KEY"
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          CRON_KEY: ${{ secrets.CRON_KEY }}
