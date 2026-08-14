@@ -9,6 +9,7 @@ import InsumosPage from "./pages/insumos";
 import Gastos from "./pages/gastos";
 import Colheitas from "./pages/colheitas";
 import Relatorios from "./pages/relatorios";
+import Clima from "./pages/clima";
 
 export default function App() {
   const { session } = useAuth();
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/gastos" element={<Gastos />} />
         <Route path="/colheitas" element={<Colheitas />} />
         <Route path="/relatorios" element={<Relatorios />} />
+        <Route path="/clima" element={<Clima />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

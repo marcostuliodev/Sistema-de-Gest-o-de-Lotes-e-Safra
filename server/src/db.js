@@ -123,6 +123,40 @@ CREATE TABLE IF NOT EXISTS colheitas (
   preco_venda REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT now()::text
 );
+
+-- Localização da propriedade para o módulo de clima (adicionado depois do
+-- banco já existir em produção, por isso ADD COLUMN IF NOT EXISTS).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lat REAL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lon REAL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tz TEXT;
+
+-- Chave-valor do servidor (ex.: chaves VAPID de push, estável entre reinícios).
+CREATE TABLE IF NOT EXISTS kv (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Inscrições de Web Push por usuário.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+
+-- Histórico de alertas climáticos enviados (usado p/ debounce e exibição).
+CREATE TABLE IF NOT EXISTS weather_alerts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT now()::text
+);
 `;
 
 export async function migrate() {

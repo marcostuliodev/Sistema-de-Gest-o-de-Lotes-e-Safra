@@ -11,12 +11,22 @@ const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/gastos", label: "Gastos", icon: <Chart /> },
   { to: "/colheitas", label: "Colheitas", icon: <Basket /> },
   { to: "/relatorios", label: "Relatórios", icon: <Chart /> },
+  { to: "/clima", label: "Clima", icon: <Cloud /> },
 ];
 
 function Map({}: {}) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em">
       <path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3ZM9 7v13M15 4v13" />
+    </svg>
+  );
+}
+
+function Cloud({}: {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em">
+      <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19h11Z" />
+      <path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2" />
     </svg>
   );
 }
@@ -84,7 +94,7 @@ export default function Layout() {
 
       {/* Barra de navegação inferior (mobile) */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/95 backdrop-blur lg:hidden">
-        <div className="grid grid-cols-7 px-1 py-1">
+        <div className="grid grid-cols-8 px-1 py-1">
           {nav.map((item) => (
             <NavLink
               key={item.to}

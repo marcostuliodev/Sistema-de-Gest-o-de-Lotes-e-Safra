@@ -11,6 +11,9 @@ import authRouter from "./routes/auth.js";
 import crudRouter from "./routes/crud.js";
 import reportsRouter from "./routes/reports.js";
 import syncRouter from "./routes/sync.js";
+import weatherRouter from "./routes/weather.js";
+import pushRouter from "./routes/push.js";
+import { startScheduler } from "./scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -96,6 +99,7 @@ async function bootstrap() {
   }
 }
 bootstrap().catch((err) => console.error("Falha na inicialização:", err.message));
+startScheduler();
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString() }));
 
@@ -107,6 +111,8 @@ app.use("/api/gastos", crudRouter("gastos"));
 app.use("/api/colheitas", crudRouter("colheitas"));
 app.use("/api/reports", reportsRouter);
 app.use("/api/sync", syncRouter);
+app.use("/api/weather", weatherRouter);
+app.use("/api/push", pushRouter);
 
 const distDir = path.join(__dirname, "..", "..", "client", "dist");
 if (fs.existsSync(distDir)) {
