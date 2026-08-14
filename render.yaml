@@ -37,7 +37,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CRON_KEY
-        generateValue: true
+        value: "3fbbc1b1daecd82075f756ea65428185d309ce7578800001"
       - key: DATABASE_URL
         fromDatabase:
           name: agrolote-db
