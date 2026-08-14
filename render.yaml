@@ -31,7 +31,6 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        fromService:
-          type: connectionString
+        fromDatabase:
           name: agrolote-db
           property: connectionString
