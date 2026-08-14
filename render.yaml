@@ -26,6 +26,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Render roda `npm install` com NODE_ENV=production, o que PULA as
+      # devDependencies (vite, typescript, @types). Sem isso o build do
+      # client falha. Isso garante que as devDeps sejam instaladas no build.
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
       - key: SEED_DEMO
         value: "true"
       - key: JWT_SECRET
