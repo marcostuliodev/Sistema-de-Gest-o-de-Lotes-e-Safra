@@ -93,7 +93,7 @@ export default function Layout() {
       </aside>
 
       {/* Barra de navegação inferior (mobile) */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 overflow-x-hidden border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
         <div className="grid grid-cols-8 px-1 py-1">
           {nav.map((item) => (
             <NavLink
@@ -101,13 +101,13 @@ export default function Layout() {
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
+                `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
                   isActive ? "text-green-700" : "text-stone-400"
                 }`
               }
             >
-              <span className="text-lg">{item.icon}</span>
-              {item.label}
+              <span className="text-lg leading-none">{item.icon}</span>
+              <span className="w-full break-words text-center leading-none">{item.label}</span>
             </NavLink>
           ))}
         </div>

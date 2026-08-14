@@ -7,10 +7,16 @@
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 body {
-  @apply bg-stone-100 text-stone-900 antialiased overscroll-y-contain;
+  @apply bg-stone-100 text-stone-900 antialiased overscroll-y-contain overflow-x-hidden;
+  width: 100%;
+}
+
+#root {
+  overflow-x: hidden;
 }
 
 /* Evita que o iOS faça zoom ao focar inputs com fonte < 16px */
