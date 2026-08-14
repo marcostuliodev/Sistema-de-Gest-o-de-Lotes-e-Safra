@@ -8,8 +8,9 @@ import "./index.css";
 
 startSyncWatcher();
 
-// Registro do service worker é feito pelo vite-plugin-pwa
-import("virtual:pwa-register").catch(() => {});
+// Registro do service worker (necessário porque usamos injectRegister: false)
+import { registerSW } from "virtual:pwa-register";
+registerSW({ immediate: true });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
