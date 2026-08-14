@@ -16,9 +16,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// Render fica atrás de proxy; sem isso, req.ip seria o IP do proxy e o
-// rate-limit contaria todos os usuários como um só.
-app.set("trust proxy", true);
+// Render fica atrás de proxy; confiar em 1 hop faz req.ip ser o IP real do
+// cliente (necessário para o rate-limit funcionar por IP). Não usar `true`
+// (modo permissivo), senão o express-rate-limit lança ERR_ERL_PERMISSIVE_TRUST_PROXY.
+app.set("trust proxy", 1);
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
