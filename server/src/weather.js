@@ -165,6 +165,10 @@ export function describeWeatherCode(code, isDay = 1) {
 const STORM_CODES = [95, 96, 99];
 
 // Gera alertas acionáveis para o produtor a partir do clima normalizado.
+
+// Só alerta de chuva acima deste acumulado (mm). Ajuste conforme a necessidade.
+const RAIN_MM_THRESHOLD = 1.0;
+
 export function evaluateAlerts(weather) {
   const alerts = [];
   const today = weather.daily?.[0];
@@ -175,9 +179,8 @@ export function evaluateAlerts(weather) {
   const next = weather.hourly.slice(start, start + 12); // próximas ~12h
 
   const willRain =
-    (today.precipitation_probability_max || 0) >= 70 ||
-    (today.precipitation_sum || 0) >= 1 ||
-    next.some((h) => (h.precipitation || 0) > 0.2);
+    (today.precipitation_sum || 0) >= RAIN_MM_THRESHOLD ||
+    next.some((h) => (h.precipitation || 0) >= RAIN_MM_THRESHOLD);
 
   // Chuva
   if (willRain) {
@@ -292,3 +295,9 @@ export const ALERT_DEBOUNCE = {
 
 // Alertas de severidade baixa só aparecem no app; não viram push.
 export const PUSHABLE_SEVERITY = ["medium", "high"];
+
+// Tipos/severidades que realmente viram push. "nublado" é informativo, mas o
+// produtor pediu para também recebê-lo (usa o debounce de severidade baixa).
+export function isPushable(alert) {
+  return PUSHABLE_SEVERITY.includes(alert.severity) || alert.type === "nublado";
+}

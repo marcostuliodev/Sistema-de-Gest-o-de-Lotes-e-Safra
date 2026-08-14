@@ -42,7 +42,7 @@ export default function Layout() {
   const synced = pendingSync === 0 && online;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-dvh">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-stone-200 bg-white lg:flex">
         <div className="flex items-center gap-2 px-5 py-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-700 text-white">
@@ -93,7 +93,7 @@ export default function Layout() {
       </aside>
 
       {/* Barra de navegação inferior (mobile) */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/95 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
         <div className="grid grid-cols-8 px-1 py-1">
           {nav.map((item) => (
             <NavLink
@@ -101,7 +101,7 @@ export default function Layout() {
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 rounded-lg py-1.5 text-[10px] font-medium ${
+                `flex flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
                   isActive ? "text-green-700" : "text-stone-400"
                 }`
               }
@@ -113,7 +113,7 @@ export default function Layout() {
         </div>
       </div>
 
-      <main className="min-h-screen flex-1 pb-20 lg:ml-60 lg:pb-6">
+      <main className="min-h-dvh flex-1 pb-safe pt-safe lg:ml-60 lg:pb-6 lg:pt-0">
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
           <Outlet />
         </div>

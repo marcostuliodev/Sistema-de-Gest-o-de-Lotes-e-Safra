@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge, Button, Card, Field, TextInput } from "../components/ui";
 import {
   describeWeatherCode,
@@ -297,6 +298,24 @@ export default function Clima() {
         </div>
       )}
 
+      {/* Gráfico de temperatura/UV (24h) */}
+      {weather && weather.hourly.length > 0 && (
+        <Card>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-bold text-stone-800">Temperatura e UV — 24h</h2>
+            <div className="flex items-center gap-3 text-xs text-stone-500">
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-3 rounded-full bg-green-600" /> Temp
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block h-2 w-3 rounded-full bg-amber-500" /> UV
+              </span>
+            </div>
+          </div>
+          <WeatherChart hourly={weather.hourly} />
+        </Card>
+      )}
+
       {/* Alertas atuais */}
       {weather && weather.alerts.length > 0 && (
         <Card>
@@ -412,9 +431,14 @@ export default function Clima() {
       {/* Histórico de alertas */}
       {history.length > 0 && (
         <Card>
-          <h2 className="mb-3 font-bold text-stone-800">Alertas enviados</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-bold text-stone-800">Alertas enviados</h2>
+            <Link to="/historico" className="text-xs font-medium text-green-700 underline-offset-2 hover:underline">
+              Ver histórico completo →
+            </Link>
+          </div>
           <ul className="space-y-2 text-sm">
-            {history.map((a, i) => (
+            {history.slice(0, 5).map((a, i) => (
               <li key={i} className="flex items-center gap-2">
                 <span>{ALERT_ICON[a.type] || "⚠️"}</span>
                 <span className="font-medium text-stone-700">{a.title}</span>
@@ -434,5 +458,47 @@ function Detail({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
       <p className="mt-0.5 text-sm font-semibold text-stone-800 tabular-nums">{value}</p>
     </div>
+  );
+}
+
+function WeatherChart({ hourly }: { hourly: WeatherResponse["weather"]["hourly"] }) {
+  const data = hourly.slice(0, 24);
+  if (data.length < 2) return null;
+  const W = 320;
+  const H = 150;
+  const padX = 10;
+  const padY = 16;
+  const temps = data.map((h) => h.temperature_2m);
+  const tMin = Math.min(...temps);
+  const tMax = Math.max(...temps);
+  const span = Math.max(1, tMax - tMin);
+  const x = (i: number) => padX + (i * (W - padX * 2)) / (data.length - 1);
+  const yT = (t: number) => padY + (1 - (t - tMin) / span) * (H - padY * 2);
+  const uvMax = Math.max(1, ...data.map((h) => h.uv_index ?? 0));
+  const yU = (u: number) => padY + (1 - u / uvMax) * (H - padY * 2);
+
+  const tempLine = data.map((h, i) => `${x(i).toFixed(1)},${yT(h.temperature_2m).toFixed(1)}`).join(" ");
+  const tempArea = `10,${H - padY} ${tempLine} ${(W - padX).toFixed(1)},${H - padY}`;
+  const uvLine = data.map((h, i) => `${x(i).toFixed(1)},${yU(h.uv_index ?? 0).toFixed(1)}`).join(" ");
+
+  const labelIdx = [0, 6, 12, 18].filter((i) => i < data.length);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none" role="img" aria-label="Gráfico de temperatura e UV">
+      <defs>
+        <linearGradient id="tempFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#16a34a" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#16a34a" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polyline points={tempArea} fill="url(#tempFill)" stroke="none" />
+      <polyline points={uvLine} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeOpacity="0.8" />
+      <polyline points={tempLine} fill="none" stroke="#16a34a" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      {labelIdx.map((i) => (
+        <text key={i} x={x(i)} y={H - 4} textAnchor="middle" className="fill-stone-400" fontSize="9">
+          {fmtHour(data[i].time)}
+        </text>
+      ))}
+    </svg>
   );
 }

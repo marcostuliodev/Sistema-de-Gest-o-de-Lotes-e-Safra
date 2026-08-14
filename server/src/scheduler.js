@@ -1,5 +1,5 @@
 import { db } from "./db.js";
-import { fetchWeather, ALERT_DEBOUNCE, PUSHABLE_SEVERITY } from "./weather.js";
+import { fetchWeather, ALERT_DEBOUNCE, isPushable } from "./weather.js";
 import { sendPush } from "./push.js";
 
 const INTERVAL = 15 * 60 * 1000;
@@ -16,7 +16,7 @@ export async function runWeatherChecks() {
       if (subs.length === 0) continue;
       const weather = await fetchWeather(u.lat, u.lon, u.tz || "auto");
       for (const alert of weather.alerts) {
-        if (!PUSHABLE_SEVERITY.includes(alert.severity)) continue;
+        if (!isPushable(alert)) continue;
         const windowMs = ALERT_DEBOUNCE[alert.severity] || ALERT_DEBOUNCE.medium;
         const recent = await db
           .prepare(

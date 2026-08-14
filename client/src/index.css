@@ -6,10 +6,31 @@
 
 html {
   -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  @apply bg-stone-100 text-stone-900 antialiased;
+  @apply bg-stone-100 text-stone-900 antialiased overscroll-y-contain;
+}
+
+/* Evita que o iOS faça zoom ao focar inputs com fonte < 16px */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Respeita o recuo das áreas seguras (notch / home indicator) */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+.pb-safe-nav {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 input[type="number"]::-webkit-inner-spin-button,
