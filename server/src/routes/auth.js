@@ -2,11 +2,12 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db, migrate } from "../db.js";
 import { signToken } from "../auth.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { emailSchema, passwordSchema, nameSchema } from "../validation.js";
 
 const router = Router();
 
-router.post("/register", async (req, res) => {
+router.post("/register", asyncHandler(async (req, res) => {
   const { name, email, password } = req.body || {};
   const parsedEmail = emailSchema.safeParse(email);
   const parsedPass = passwordSchema.safeParse(password);
@@ -22,9 +23,9 @@ router.post("/register", async (req, res) => {
   const info = await db.prepare("INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) RETURNING id").run(parsedName.data, parsedEmail.data, hash);
   const user = await db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json({ user, token: signToken(user) });
-});
+}));
 
-router.post("/login", async (req, res) => {
+router.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   const parsedEmail = emailSchema.safeParse(email);
   if (!parsedEmail.success) return res.status(401).json({ error: "Credenciais invalidas" });
@@ -34,7 +35,7 @@ router.post("/login", async (req, res) => {
   }
   const safe = { id: user.id, name: user.name, email: user.email };
   res.json({ user: safe, token: signToken(safe) });
-});
+}));
 
 export async function createDemoAccount() {
   await migrate();

@@ -1,18 +1,19 @@
 import { Router } from "express";
 import { db, requiredFor, copyable } from "../db.js";
 import { authMiddleware } from "../auth.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { parseEntity, sanitizeSnapshot, sanitizeRow } from "../validation.js";
 
 function crudRouter(entity) {
   const router = Router();
   router.use(authMiddleware);
 
-  router.get("/", async (req, res) => {
+  router.get("/", asyncHandler(async (req, res) => {
     const rows = await db.prepare(`SELECT * FROM ${entity} WHERE user_id = ? ORDER BY id DESC`).all(req.user.uid);
     res.json(sanitizeSnapshot({ [entity]: rows })[entity]);
-  });
+  }));
 
-  router.post("/", async (req, res) => {
+  router.post("/", asyncHandler(async (req, res) => {
     const body = req.body || {};
     try {
       const data = parseEntity(entity, body);
@@ -26,9 +27,9 @@ function crudRouter(entity) {
     const info = await db.prepare(`INSERT INTO ${entity} (${keys.join(", ")}) VALUES (${placeholders}) RETURNING id`).run(...values);
     const row = await db.prepare(`SELECT * FROM ${entity} WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(sanitizeRow(row));
-  });
+  }));
 
-  router.put("/:id", async (req, res) => {
+  router.put("/:id", asyncHandler(async (req, res) => {
     const id = req.params.id;
     const existing = await db.prepare(`SELECT id FROM ${entity} WHERE id = ? AND user_id = ?`).get(id, req.user.uid);
     if (!existing) return res.status(404).json({ error: "Registro nao encontrado" });
@@ -42,13 +43,13 @@ function crudRouter(entity) {
     const set = fields.map((f) => `${f} = ?`).join(", ");
     await db.prepare(`UPDATE ${entity} SET ${set} WHERE id = ?`).run(...fields.map((f) => req.body[f]), id);
     res.json(sanitizeRow(await db.prepare(`SELECT * FROM ${entity} WHERE id = ?`).get(id)));
-  });
+  }));
 
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", asyncHandler(async (req, res) => {
     const info = await db.prepare(`DELETE FROM ${entity} WHERE id = ? AND user_id = ?`).run(req.params.id, req.user.uid);
     if (info.changes === 0) return res.status(404).json({ error: "Registro nao encontrado" });
     res.status(204).end();
-  });
+  }));
 
   return router;
 }

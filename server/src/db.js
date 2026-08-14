@@ -10,7 +10,17 @@ const pool = new pg.Pool({
   connectionString: connStr,
   ssl,
   max: 10,
+  // Falha rápido se o banco não responder, em vez de travar a requisição até
+  // o proxy do Render estourar (502).
+  connectionTimeoutMillis: 5000,
+  application_name: "agrolote",
 });
+
+if (!connStr) {
+  console.error(
+    "FATAL: DATABASE_URL não definida. O PostgreSQL (Render) precisa ser provisionado e conectado ao serviço web (re-aplique o Blueprint). Sem isso, nenhuma rota de API funciona."
+  );
+}
 
 // Converte "?" (estilo SQLite) em "$1, $2, ..." (estilo pg).
 function toPg(sql) {

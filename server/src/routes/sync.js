@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { db, copyable, withTransaction, bumpUsersSequence } from "../db.js";
 import { authMiddleware } from "../auth.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { entitySchemas, sanitizeSnapshot, sanitizeText } from "../validation.js";
 
 const router = Router();
@@ -51,7 +52,7 @@ async function snapshot(t, uid) {
   return sanitizeSnapshot(out);
 }
 
-router.post("/", async (req, res) => {
+router.post("/", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
   const ops = Array.isArray(req.body?.ops) ? req.body.ops : [];
   if (ops.length > MAX_OPS) {
@@ -79,7 +80,7 @@ router.post("/", async (req, res) => {
     const isProd = process.env.NODE_ENV === "production";
     return res.status(400).json({ error: isProd ? "Sincronizacao falhou" : err.message });
   }
-});
+}));
 
 export { snapshot, ENTITIES };
 

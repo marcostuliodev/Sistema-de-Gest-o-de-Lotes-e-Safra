@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
+import { asyncHandler } from "../asyncHandler.js";
 import { sanitizeSnapshot, sanitizeRow } from "../validation.js";
 
 const router = Router();
 router.use(authMiddleware);
 
-router.get("/dashboard", async (req, res) => {
+router.get("/dashboard", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
 
   const active = (await db.prepare("SELECT COUNT(*) c FROM plantios WHERE user_id = ? AND status = 'ativo'").get(uid)).c;
@@ -45,9 +46,9 @@ router.get("/dashboard", async (req, res) => {
     lucro_30d: revenue.receita_30d - costs.custo_30d,
     proximas_colheitas: sanitizeSnapshot({ proximas_colheitas: pending }).proximas_colheitas,
   });
-});
+}));
 
-router.get("/performance", async (req, res) => {
+router.get("/performance", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
   const rows = await db.prepare(`
     SELECT p.cultura,
@@ -66,6 +67,6 @@ router.get("/performance", async (req, res) => {
   `).all(uid);
   const perf = rows.map((r) => ({ ...r, custo: r.custo ?? 0, lucro: (r.receita ?? 0) - (r.custo ?? 0) }));
   res.json(sanitizeSnapshot({ perf }).perf);
-});
+}));
 
 export default router;

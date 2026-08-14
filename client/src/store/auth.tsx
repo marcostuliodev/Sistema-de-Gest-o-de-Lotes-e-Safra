@@ -1,15 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getSession, login, register, setSession, type AuthSession } from "../db/api";
-import { clearLocal, db } from "../db/db";
+import { db } from "../db/db";
 import { pullServer } from "../db/sync";
 
 const LAST_USER_KEY = "agrolote_last_user";
 
-/** Se o usuário mudou (outra conta logando neste aparelho), zera o banco local
- *  para não misturar dados entre contas. */
+/** Registra a última conta usada neste aparelho.
+ *  IMPORTANTE: não apagamos mais o banco local ao trocar de conta. O app é
+ *  offline-first e os dados vivem no dispositivo; o sync reenvia tudo para a
+ *  conta logada. Apagar causaria perda de dados do produtor (ex.: após o banco
+ *  do servidor ser recriado e o usuário registrar uma conta nova). */
 async function prepareFreshStore(userId: number) {
-  const last = localStorage.getItem(LAST_USER_KEY);
-  if (last && last !== String(userId)) await clearLocal();
   localStorage.setItem(LAST_USER_KEY, String(userId));
 }
 
