@@ -42,8 +42,9 @@ export default function Layout() {
   const synced = pendingSync === 0 && online;
 
   return (
-    <div className="flex min-h-dvh">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-stone-200 bg-white lg:flex">
+    <div className="flex min-h-dvh flex-col lg:flex-row">
+      {/* Sidebar (somente desktop) */}
+      <aside className="hidden lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-stone-200 lg:bg-white">
         <div className="flex items-center gap-2 px-5 py-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-700 text-white">
             <Leaf />
@@ -92,32 +93,35 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Barra de navegação inferior (mobile) */}
-      <div className="fixed inset-x-0 bottom-0 z-40 overflow-x-hidden border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
-        <div className="grid grid-cols-8 px-1 py-1">
-          {nav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
-                  isActive ? "text-green-700" : "text-stone-400"
-                }`
-              }
-            >
-              <span className="text-lg leading-none">{item.icon}</span>
-              <span className="w-full break-words text-center leading-none">{item.label}</span>
-            </NavLink>
-          ))}
-        </div>
-      </div>
+      {/* Coluna de conteúdo + menu (mobile) / conteúdo (desktop) */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+            <Outlet />
+          </div>
+        </main>
 
-      <main className="min-h-dvh flex-1 pb-safe pt-safe lg:ml-60 lg:pb-6 lg:pt-0">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          <Outlet />
-        </div>
-      </main>
+        {/* Barra de navegação inferior (mobile) — em fluxo, nunca cobre o conteúdo */}
+        <nav className="border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
+          <div className="grid grid-cols-8 px-1 py-1">
+            {nav.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
+                    isActive ? "text-green-700" : "text-stone-400"
+                  }`
+                }
+              >
+                <span className="text-lg leading-none">{item.icon}</span>
+                <span className="w-full break-words text-center leading-none">{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </nav>
+      </div>
     </div>
   );
 }
