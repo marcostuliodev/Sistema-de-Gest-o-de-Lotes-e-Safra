@@ -115,8 +115,8 @@ if (fs.existsSync(distDir)) {
 
 app.use((err, _req, res, _next) => {
   console.error("Erro:", err);
-  const isProd = process.env.NODE_ENV === "production";
-  res.status(500).json({ error: isProd ? "Erro interno" : err.message });
+  // TEMPORÁRIO (debug): expõe a mensagem real do erro para diagnosticar o 500.
+  res.status(500).json({ error: err?.message || "Erro interno" });
 });
 
 app.listen(PORT, async () => {
