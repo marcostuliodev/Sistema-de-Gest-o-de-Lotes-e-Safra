@@ -16,6 +16,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Render fica atrás de proxy; sem isso, req.ip seria o IP do proxy e o
+// rate-limit contaria todos os usuários como um só.
+app.set("trust proxy", true);
+
 const IS_PROD = process.env.NODE_ENV === "production";
 
 app.disable("x-powered-by");
@@ -71,7 +75,6 @@ const authLimiter = rateLimit({
   message: { error: "Muitas tentativas, tente novamente mais tarde" },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
 });
 
 app.use("/api/auth/login", authLimiter);
