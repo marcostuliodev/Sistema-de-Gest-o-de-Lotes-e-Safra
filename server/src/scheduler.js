@@ -1,8 +1,32 @@
 import { db } from "./db.js";
+import { randomBytes } from "node:crypto";
 import { fetchWeather, ALERT_DEBOUNCE, isPushable } from "./weather.js";
 import { sendPush } from "./push.js";
 
 const INTERVAL = 15 * 60 * 1000;
+const CRON_KEY_KV = "cron_key";
+
+// Resolve a chave do cron: usa CRON_KEY do ambiente (render.yaml) ou, se não
+// existir (serviço já existente onde o generateValue não criou a var), gera e
+// persiste uma no kv para ter sempre uma chave estável.
+export async function getCronKey() {
+  if (process.env.CRON_KEY) return process.env.CRON_KEY;
+  const row = await db.prepare("SELECT value FROM kv WHERE key = ?").get(CRON_KEY_KV);
+  if (row) return row.value;
+  const k = randomBytes(24).toString("hex");
+  await db
+    .prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value")
+    .run(CRON_KEY_KV, k);
+  return k;
+}
+
+// Imprime a chave no log de startup para o produtor copiar p/ o agendador.
+export async function logCronKey() {
+  const key = await getCronKey();
+  const base = process.env.PUBLIC_URL || "https://agrolote.marcostuliogc.com.br";
+  console.log(`[cron] CRON_KEY em uso: ${key}`);
+  console.log(`[cron] Agende o push 24/7 com: GET ${base}/api/cron/weather?key=${key}`);
+}
 
 // Verifica o clima de todos os usuários com localização + inscrição de push e
 // envia alertas acionáveis (com debounce por tipo/severidade).

@@ -14,7 +14,7 @@ import syncRouter from "./routes/sync.js";
 import weatherRouter from "./routes/weather.js";
 import pushRouter from "./routes/push.js";
 import cronRouter from "./routes/cron.js";
-import { startScheduler } from "./scheduler.js";
+import { startScheduler, logCronKey } from "./scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -87,6 +87,7 @@ app.use("/api/auth/register", authLimiter);
 
 async function bootstrap() {
   await migrate();
+  await logCronKey().catch(() => {});
 
   if (process.env.SEED_DEMO !== "false") {
     const users = await db.prepare("SELECT COUNT(*) AS c FROM users").get();
