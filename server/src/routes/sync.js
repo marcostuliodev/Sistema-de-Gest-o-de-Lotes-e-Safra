@@ -63,14 +63,22 @@ router.post("/", asyncHandler(async (req, res) => {
       await ensureUser(t, req.user);
       for (const op of ops) {
         if (!ENTITIES.includes(op.entity)) continue;
-        const schema = entitySchemas[op.entity];
-        if (schema) {
-          const parsed = schema.safeParse(op.data || {});
-          if (!parsed.success) {
-            throw new Error(parsed.error.errors[0]?.message || "Dados invalidos no sync");
+        const action = op.action || "upsert";
+        if (action === "delete") {
+          // Delete só precisa do id; não validamos contra o schema completo
+          // do registro (que exige campos como nome/area), senão o sync todo
+          // falharia e o item nunca seria removido do servidor.
+          if (!op.data?.id) throw new Error("id obrigatorio para deletar");
+        } else {
+          const schema = entitySchemas[op.entity];
+          if (schema) {
+            const parsed = schema.safeParse(op.data || {});
+            if (!parsed.success) {
+              throw new Error(parsed.error.errors[0]?.message || "Dados invalidos no sync");
+            }
           }
         }
-        await applyOp(t, op.entity, op.action || "upsert", op.data || {}, uid);
+        await applyOp(t, op.entity, action, op.data || {}, uid);
       }
       const snap = await snapshot(t, uid);
       return snap;

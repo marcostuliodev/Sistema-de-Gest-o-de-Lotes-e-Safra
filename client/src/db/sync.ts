@@ -38,19 +38,29 @@ export async function outboxCount() {
  * no servidor automaticamente — os ids são UUIDs, então não cria duplicidade.
  */
 async function buildOps(): Promise<SyncOp[]> {
-  const ops: SyncOp[] = (await db.outbox.orderBy("created_at").toArray()).map((r) => r.op);
+  // Envia primeiro os registros locais (upserts) e DEPOIS o outbox. Assim, um
+  // delete que estava no outbox é aplicado por último e "vence" — caso
+  // contrário o item deletado seria re-inserido pelo upsert e voltaria a aparecer.
+  const ops: SyncOp[] = [];
   for (const entity of ENTITY_TABLES) {
     const records = await (db[entity] as Table<{ id: string }, string>).toArray();
     for (const rec of records) ops.push({ entity, action: "upsert", data: rec });
   }
-  return ops;
+  const outboxOps = (await db.outbox.orderBy("created_at").toArray()).map((r) => r.op);
+  return ops.concat(outboxOps);
 }
 
 async function commit(result: { snapshot: any; serverTime: string }) {
   // mergeLocalWith já abre sua própria transação. Não podemos aninhar uma
   // transação de outbox-only aqui, senão o Dexie lança erro ao tocar as
   // outras tabelas e o outbox nunca é limpo (UI fica "Sincronizando" p/ sempre).
-  await mergeLocalWith(result.snapshot);
+  try {
+    await mergeLocalWith(result.snapshot);
+  } catch (e) {
+    // Os dados já foram confirmados no servidor (recebemos o snapshot), então
+    // seguimos e limpamos o outbox mesmo se o merge local falhar.
+    console.error("mergeLocalWith falhou:", e);
+  }
   await db.outbox.clear();
   await db.meta.put({ key: "last_sync", value: result.serverTime });
   window.dispatchEvent(new CustomEvent("agrolote:synced"));
