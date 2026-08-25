@@ -1,5 +1,6 @@
 // Integração com a Open-Meteo (gratuita, sem chave de API, suporta CORS).
 // Documentação: https://open-meteo.com/en/docs
+// Timeout de 10s para evitar bloqueios na aplicação se a Open-Meteo ficar lenta.
 const GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 
@@ -55,9 +56,17 @@ const cache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
 
 async function getJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Open-Meteo ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetch(url, { timeout: 10000 });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Sem resposta do servidor");
+      throw new Error(`Open-Meteo ${res.status}: ${errText.slice(0, 200)}`);
+    }
+    return res.json();
+  } catch (e) {
+    // Erro de rede ou timeout - re-lança com mensagem mais clara
+    throw new Error(`Erro ao consultar Open-Meteo: ${e.message || "Sem detalhes"}`);
+  }
 }
 
 export async function geocode(query) {
@@ -92,47 +101,53 @@ export async function fetchWeather(lat, lon, tz = "auto") {
     forecast_days: "7",
     past_days: "0",
   });
-  const data = await getJson(`${FORECAST_URL}?${params.toString()}`);
 
-  const current = { ...data.current };
-  const hourly = data.hourly.time.map((time, i) => {
-    const o = { time };
-    for (const k of HOURLY_VARS) o[k] = data.hourly[k][i];
-    return o;
-  });
-  const daily = data.daily.time.map((date, i) => {
-    const o = { date };
-    for (const k of DAILY_VARS) o[k] = data.daily[k][i];
-    return o;
-  });
+  try {
+    const data = await getJson(`${FORECAST_URL}?${params.toString()}`);
 
-  // UV "agora": usa o bucket da hora corrente (último hourly cujo horário é
-  // <= o horário atual). O current.time raramente bate exato com um topo de
-  // hora, então evitamos a comparação de igualdade que sempre falhava.
-  let curIdx = hourly.length - 1;
-  for (let i = 0; i < hourly.length; i++) {
-    if (hourly[i].time > current.time) {
-      curIdx = i - 1;
-      break;
+    const current = { ...data.current };
+    const hourly = data.hourly.time.map((time, i) => {
+      const o = { time };
+      for (const k of HOURLY_VARS) o[k] = data.hourly[k][i];
+      return o;
+    });
+    const daily = data.daily.time.map((date, i) => {
+      const o = { date };
+      for (const k of DAILY_VARS) o[k] = data.daily[k][i];
+      return o;
+    });
+
+    // UV "agora": usa o bucket da hora corrente (último hourly cujo horário é
+    // <= o horário atual). O current.time raramente bate exato com um topo de
+    // hora, então evitamos a comparação de igualdade que sempre falhava.
+    let curIdx = hourly.length - 1;
+    for (let i = 0; i < hourly.length; i++) {
+      if (hourly[i].time > data.current.time) {
+        curIdx = i - 1;
+        break;
+      }
     }
-  }
-  current.uv_index = curIdx >= 0 ? hourly[curIdx].uv_index : (hourly[0]?.uv_index ?? null);
+    current.uv_index = curIdx >= 0 ? hourly[curIdx].uv_index : (hourly[0]?.uv_index ?? null);
 
-  const result = {
-    location: {
-      latitude: lat,
-      longitude: lon,
-      timezone: data.timezone,
-      timezone_abbreviation: data.timezone_abbreviation,
-      utc_offset_seconds: data.utc_offset_seconds ?? 0,
-    },
-    current,
-    hourly,
-    daily,
-    alerts: evaluateAlerts({ current, hourly, daily }),
-  };
-  cache.set(key, { t: Date.now(), v: result });
-  return result;
+    const result = {
+      location: {
+        latitude: lat,
+        longitude: lon,
+        timezone: data.timezone,
+        timezone_abbreviation: data.timezone_abbreviation,
+        utc_offset_seconds: data.utc_offset_seconds ?? 0,
+      },
+      current,
+      hourly,
+      daily,
+      alerts: evaluateAlerts({ current, hourly, daily }),
+    };
+    cache.set(key, { t: Date.now(), v: result });
+    return result;
+  } catch (e) {
+    // Em caso de falha na API Open-Meteo, lança erro com mensagem clara
+    throw new Error(`Falha ao obter dados meteorológicos: ${(e as Error).message}`);
+  }
 }
 
 const WMO = {

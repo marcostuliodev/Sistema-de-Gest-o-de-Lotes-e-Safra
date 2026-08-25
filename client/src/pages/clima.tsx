@@ -59,7 +59,7 @@ export default function Clima() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMsg, setPushMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+useEffect(() => {
     (async () => {
       try {
         const l = await getLocation();
@@ -68,10 +68,15 @@ export default function Clima() {
           loadWeather();
           loadHistory();
         } else {
-          const cached = await getCachedWeather();
-          if (cached) {
-            setLoc(cached.location as Loc);
-            setWeather(cached.weather);
+          // Não tem localização salva nem cache — oferece usar geolocalização
+          setError(
+            "Localização não configurada. Clique em 'Usar minha localização atual' para ativar ou defina a cidade nas configurações."
+          );
+          // Tenta geolocalização automática se o navegador permitir
+          if (!!navigator.geolocation) {
+            setError(
+              "Permitir geolocalização para detectar sua posição automaticamente."
+            );
           }
         }
       } catch (e: any) {
@@ -85,7 +90,6 @@ export default function Clima() {
         setPushSubscribed(!!sub);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadWeather() {
@@ -97,8 +101,11 @@ export default function Clima() {
       setError(null);
     } catch (e: any) {
       const cached = await getCachedWeather();
-      if (cached) setWeather(cached.weather);
-      setError(e.message || "Erro ao buscar clima");
+      if (cached) {
+        setWeather(cached.weather);
+        setLoc(cached.location as Loc);
+      }
+      setError(e.message || "Erro ao buscar clima. Verifique sua conexão.");
     }
   }
 

@@ -20,16 +20,21 @@ router.get(
 router.get(
   "/location",
   asyncHandler(async (req, res) => {
-    const row = await db
-      .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
-      .get(req.user.uid);
-    if (!row || row.lat == null || row.lon == null) {
-      res.json({ location: null });
-      return;
+    try {
+      const row = await db
+        .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
+        .get(req.user.uid);
+      if (!row || row.lat == null || row.lon == null) {
+        res.json({ location: null });
+        return;
+      }
+      res.json({
+        location: { lat: row.lat, lon: row.lon, city: row.city, tz: row.tz },
+      });
+    } catch (e) {
+      console.error("Erro ao buscar localização:", e);
+      res.status(500).json({ error: "Erro interno ao carregar localização" });
     }
-    res.json({
-      location: { lat: row.lat, lon: row.lon, city: row.city, tz: row.tz },
-    });
   })
 );
 
@@ -54,14 +59,19 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const row = await db
-      .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
-      .get(req.user.uid);
-    if (!row || row.lat == null || row.lon == null) {
-      return res.status(400).json({ error: "Localização não configurada" });
+    try {
+      const row = await db
+        .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
+        .get(req.user.uid);
+      if (!row || row.lat == null || row.lon == null) {
+        return res.status(400).json({ error: "Localização não configurada" });
+      }
+      const weather = await fetchWeather(row.lat, row.lon, row.tz || "auto");
+      res.json({ location: { city: row.city, lat: row.lat, lon: row.lon, tz: row.tz }, weather });
+    } catch (e) {
+      console.error("Erro ao buscar clima:", e);
+      res.status(500).json({ error: "Erro ao obter dados meteorológicos. Verifique sua conexão e tente novamente." });
     }
-    const weather = await fetchWeather(row.lat, row.lon, row.tz || "auto");
-    res.json({ location: { city: row.city, lat: row.lat, lon: row.lon, tz: row.tz }, weather });
   })
 );
 
