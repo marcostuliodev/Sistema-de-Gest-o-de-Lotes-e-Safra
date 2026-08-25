@@ -101,7 +101,17 @@ async function bootstrap() {
   }
 }
 bootstrap().catch((err) => console.error("Falha na inicialização:", err.message));
-startScheduler();
+
+// Em produção, as verificações de clima são disparadas PELO agendador externo
+// (GitHub Actions / cron-job.org) via GET /api/cron/weather — ele também mantém
+// a instância free da Render acorda. Rodar o scheduler interno aqui causaria
+// duplo disparo (14min do cron x 15min interno), desalinhado e redundante.
+// Em dev, mantemos o scheduler interno para testar sem depender de cron externo.
+if (!IS_PROD) {
+  startScheduler();
+} else {
+  console.log("[cron] Produção: verificações de clima via agendador externo (GET /api/cron/weather?key=CRON_KEY).");
+}
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString() }));
 

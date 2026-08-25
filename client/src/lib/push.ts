@@ -74,4 +74,8 @@ export async function sendTestPush(): Promise<void> {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Falha ao enviar teste");
   }
+  const data = await res.json().catch(() => ({}));
+  if (!data.sent) {
+    throw new Error("Nenhuma inscrição ativa recebeu o push — reative as notificações no app.");
+  }
 }

@@ -106,9 +106,17 @@ export async function fetchWeather(lat, lon, tz = "auto") {
     return o;
   });
 
-  // UV "agora" a partir da hora correspondente.
-  const idx = hourly.findIndex((h) => h.time === current.time);
-  current.uv_index = idx >= 0 ? hourly[idx].uv_index : (hourly[0]?.uv_index ?? null);
+  // UV "agora": usa o bucket da hora corrente (último hourly cujo horário é
+  // <= o horário atual). O current.time raramente bate exato com um topo de
+  // hora, então evitamos a comparação de igualdade que sempre falhava.
+  let curIdx = hourly.length - 1;
+  for (let i = 0; i < hourly.length; i++) {
+    if (hourly[i].time > current.time) {
+      curIdx = i - 1;
+      break;
+    }
+  }
+  current.uv_index = curIdx >= 0 ? hourly[curIdx].uv_index : (hourly[0]?.uv_index ?? null);
 
   const result = {
     location: {
@@ -175,9 +183,14 @@ export function evaluateAlerts(weather) {
   const today = weather.daily?.[0];
   if (!today) return alerts;
 
-  const nowIdx = weather.hourly.findIndex((h) => h.time === weather.current.time);
+  // O `current.time` (ex.: "2026-08-16T10:30") raramente bate exato com um
+  // `hourly.time` (topo da hora, "2026-08-16T10:00"), então a comparação de
+  // igualdade sempre falhava e a janela caía para o início do dia. Usamos o
+  // primeiro hourly cujo horário é >= o horário atual (strings ISO comparam
+  // lexicamente, então funciona sem parse).
+  const nowIdx = weather.hourly.findIndex((h) => h.time >= weather.current.time);
   const start = nowIdx >= 0 ? nowIdx : 0;
-  const next = weather.hourly.slice(start, start + 12); // próximas ~12h
+  const next = weather.hourly.slice(start, start + 12); // próximas ~12h a partir de agora
 
   const willRain =
     (today.precipitation_sum || 0) >= RAIN_MM_THRESHOLD ||

@@ -35,15 +35,27 @@ export async function getVapidPublic() {
 }
 
 // Envia uma notificação. Retorna true em sucesso, false se a inscrição
-// expirou (deve ser removida).
+// expirou/está inválida (deve ser removida).
 export async function sendPush(subscription, payload) {
   await ensureVapid();
   try {
     await webpush.sendNotification(subscription, JSON.stringify(payload));
     return true;
   } catch (err) {
-    if (err.statusCode === 404 || err.statusCode === 410) return false;
-    console.error("Falha ao enviar push:", err.message);
-    return true; // mantém a inscrição em caso de erro transitório
+    const code = err.statusCode;
+    // 404/410: inscrição inexistente/expirada.
+    // 401/403: falha de autenticação VAPID — a inscrição está quebrada (as
+    // chaves VAPID no servidor não batem mais com a inscrição do dispositivo).
+    // Em ambos, a inscrição deve ser removida. Antes retornávamos `true` nesses
+    // casos, mascarando a falha: o servidor "emitia" mas o dispositivo nunca
+    // recebia a notificação.
+    if (code === 404 || code === 410 || code === 401 || code === 403) {
+      console.warn(`[push] Inscrição inválida (HTTP ${code}) — será removida. Se persistir, o usuário precisa reativar o push no app.`);
+      return false;
+    }
+    // 429/5xx/erro de rede: transitório, mantém a inscrição para retry no
+    // próximo ciclo, mas NÃO conta como entregue.
+    console.error(`[push] Falha transitória ao enviar push (HTTP ${code || "?"}):`, err.message);
+    return true;
   }
 }

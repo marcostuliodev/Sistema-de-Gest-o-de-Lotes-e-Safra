@@ -18,22 +18,37 @@ registerRoute(
 );
 
 sw.addEventListener("push", (event: any) => {
-  if (!event.data) return;
   let payload: any = {};
-  try {
-    payload = event.data.json();
-  } catch {
-    payload = { title: "Agrolote", body: event.data.text() };
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = { title: "Agrolote", body: event.data.text() };
+    }
   }
   const title = payload.title || "Agrolote";
+  // Garante body não-vazio: alguns SOs silenciam/ignoram notificação sem texto.
+  const body =
+    typeof payload.body === "string" && payload.body.length > 0
+      ? payload.body
+      : "Toque para ver os detalhes no app.";
   const options: any = {
-    body: payload.body,
+    body,
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
     tag: payload.tag || "clima",
+    // Re-alerta (som/vibração) mesmo com tag repetida, em vez de substituir
+    // silenciosamente; e mantém a notificação visível até o usuário agir.
+    renotify: true,
+    requireInteraction: true,
+    timestamp: Date.now(),
     data: { url: payload.url || "/clima" },
   };
-  event.waitUntil(sw.registration.showNotification(title, options));
+  event.waitUntil(
+    sw.registration
+      .showNotification(title, options)
+      .catch((e: any) => console.error("[sw] Falha ao exibir notificação:", e))
+  );
 });
 
 sw.addEventListener("notificationclick", (event: any) => {

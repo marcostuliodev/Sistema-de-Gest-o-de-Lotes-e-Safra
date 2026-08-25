@@ -29,6 +29,12 @@ router.get("/weather", async (req, res) => {
   const keyMatches = safeEqual(provided, cronKey);
   const devBypass = dev && !cronKey;
   if (!keyMatches && !devBypass) {
+    // Não vazamos a chave no log. Apenas sinalizamos a causa raiz mais comum:
+    // o segredo do agendador externo (GitHub Actions / cron-job.org) não bate
+    // com o CRON_KEY do ambiente (render.yaml, generateValue: true).
+    console.warn(
+      "[cron] GET /api/cron/weather negado (chave inválida/ausente). Verifique se o segredo CRON_KEY do agendador externo é igual ao CRON_KEY do ambiente."
+    );
     return res.status(401).json({ error: "unauthorized" });
   }
   try {
