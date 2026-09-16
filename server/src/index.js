@@ -20,13 +20,11 @@ import { startScheduler, logCronKey } from "./scheduler.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
-
-// Render fica atrás de proxy; confiar em 1 hop faz req.ip ser o IP real do
-// cliente (necessário para o rate-limit funcionar por IP). Não usar `true`
-// (modo permissivo), senão o express-rate-limit lança ERR_ERL_PERMISSIVE_TRUST_PROXY.
-app.set("trust proxy", 1);
-
 const IS_PROD = process.env.NODE_ENV === "production";
+const IS_VERCEL = !!process.env.VERCEL;
+
+// Render / Vercel ficam atrás de proxy; confiar em 1 hop
+app.set("trust proxy", 1);
 
 app.disable("x-powered-by");
 
@@ -58,13 +56,14 @@ app.use(
 );
 
 const allowedOrigins = IS_PROD
-  ? ["https://agrolote.onrender.com", "https://agrolote.marcostuliogc.com.br"]
+  ? ["https://agrolote.onrender.com", "https://agrolote.marcostuliogc.com.br", "https://agrolote.vercel.app", /\.vercel\.app$/]
   : ["http://localhost:5173", "http://localhost:4000", "http://127.0.0.1:5173"];
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.some((o) => (o instanceof RegExp ? o.test(origin) : o === origin))) return cb(null, true);
       cb(null, false);
     },
     credentials: true,
@@ -86,7 +85,15 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
+// ═══════════════════════════════════════════════════════════════════════
+// Bootstrap (roda uma vez — cold start no Vercel, startup no Render/VPS)
+// ═══════════════════════════════════════════════════════════════════════
+let bootstrapped = false;
+
 async function bootstrap() {
+  if (bootstrapped) return;
+  bootstrapped = true;
+
   await migrate();
   await logCronKey().catch(() => {});
 
@@ -101,19 +108,25 @@ async function bootstrap() {
     }
   }
 }
-bootstrap().catch((err) => console.error("Falha na inicialização:", err.message));
 
-// Em produção, as verificações de clima são disparadas PELO agendador externo
-// (GitHub Actions / cron-job.org) via GET /api/cron/weather — ele também mantém
-// a instância free da Render acorda. Rodar o scheduler interno aqui causaria
-// duplo disparo (14min do cron x 15min interno), desalinhado e redundante.
-// Em dev, mantemos o scheduler interno para testar sem depender de cron externo.
-if (!IS_PROD) {
+// Garante bootstrap antes de processar requests (wrapper middleware)
+app.use(async (_req, _res, next) => {
+  try {
+    await bootstrap();
+  } catch (err) {
+    console.error("Falha no bootstrap:", err.message);
+  }
+  next();
+});
+
+// Em dev, mantemos o scheduler interno
+if (!IS_PROD && !IS_VERCEL) {
   startScheduler();
-} else {
-  console.log("[cron] Produção: verificações de clima via agendador externo (GET /api/cron/weather?key=CRON_KEY).");
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Rotas da API
+// ═══════════════════════════════════════════════════════════════════════
 app.get("/api/health", (_req, res) => res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString() }));
 
 app.use("/api/auth", authRouter);
@@ -129,23 +142,36 @@ app.use("/api/push", pushRouter);
 app.use("/api/cron", cronRouter);
 app.use("/api/upgrade", upgradeRouter);
 
-const distDir = path.join(__dirname, "..", "..", "client", "dist");
-if (fs.existsSync(distDir)) {
-  app.use(express.static(distDir, { maxAge: IS_PROD ? "1y" : 0, etag: true }));
-  app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
+// ═══════════════════════════════════════════════════════════════════════
+// Static files (apenas em ambientes que servem SPA — NÃO no Vercel)
+// ═══════════════════════════════════════════════════════════════════════
+if (!IS_VERCEL) {
+  const distDir = path.join(__dirname, "..", "..", "client", "dist");
+  if (fs.existsSync(distDir)) {
+    app.use(express.static(distDir, { maxAge: IS_PROD ? "1y" : 0, etag: true }));
+    app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(distDir, "index.html")));
+  }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Error handler
+// ═══════════════════════════════════════════════════════════════════════
 app.use((err, _req, res, _next) => {
   console.error("Erro:", err);
   res.status(500).json({ error: "Erro interno" });
 });
 
-app.listen(PORT, async () => {
-  if (!IS_PROD) {
-    const demoId = await createDemoAccount();
-    console.log(`Agrolote API em http://localhost:${PORT}`);
-    console.log(`Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
-  }
-});
+// ═══════════════════════════════════════════════════════════════════════
+// Listen (apenas fora do Vercel — no Vercel o serverless manager cuida)
+// ═══════════════════════════════════════════════════════════════════════
+if (!IS_VERCEL) {
+  app.listen(PORT, async () => {
+    if (!IS_PROD) {
+      const demoId = await createDemoAccount();
+      console.log(`Agrolote API em http://localhost:${PORT}`);
+      console.log(`Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
+    }
+  });
+}
 
 export default app;
