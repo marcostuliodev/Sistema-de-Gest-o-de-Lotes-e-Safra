@@ -1,8 +1,21 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db/db";
 import { Badge, Button, Card, Money, StatCard } from "../components/ui";
+import { PlanGate } from "../components/PlanGate";
 
 export default function Relatorios() {
+  return (
+    <PlanGate
+      feature="relatoriosAvancados"
+      blockedTitle="Relatórios avançados"
+      blockedDescription="Faça upgrade para o plano Básico ou superior para acessar relatórios detalhados por cultura e por lote."
+    >
+      <RelatoriosContent />
+    </PlanGate>
+  );
+}
+
+function RelatoriosContent() {
   const plantios = useLiveQuery(() => db.plantios.toArray(), []);
   const lotes = useLiveQuery(() => db.lotes.toArray(), []);
   const gastos = useLiveQuery(() => db.gastos.toArray(), []);

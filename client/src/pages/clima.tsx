@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge, Button, Card, Field, TextInput } from "../components/ui";
+import { PlanGate } from "../components/PlanGate";
 import {
   describeWeatherCode,
   windDir,
@@ -43,6 +44,19 @@ const SEV_TONE: Record<string, "blue" | "amber" | "red" | "gray"> = {
 };
 
 export default function Clima() {
+  return (
+    <PlanGate
+      feature="climaAlertas"
+      minPlan="premium"
+      blockedTitle="Clima & Alertas"
+      blockedDescription="Faça upgrade para o plano Premium para acompanhar o clima e receber alertas na sua propriedade."
+    >
+      <ClimaContent />
+    </PlanGate>
+  );
+}
+
+function ClimaContent() {
   const [loc, setLoc] = useState<Loc | null>(null);
   const [weather, setWeather] = useState<WeatherResponse["weather"] | null>(null);
   const [history, setHistory] = useState<WeatherAlert[]>([]);

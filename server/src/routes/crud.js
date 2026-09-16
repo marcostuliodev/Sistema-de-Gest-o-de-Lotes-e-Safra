@@ -3,6 +3,13 @@ import { db, requiredFor, copyable } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { parseEntity, sanitizeSnapshot, sanitizeRow } from "../validation.js";
+import { getPlanFeatures } from "../plans.js";
+
+/** Entidades que têm limite por plano. */
+const LIMITED_ENTITIES = {
+  lotes: "maxLotes",
+  plantios: "maxPlantios",
+};
 
 function crudRouter(entity) {
   const router = Router();
@@ -14,6 +21,27 @@ function crudRouter(entity) {
   }));
 
   router.post("/", asyncHandler(async (req, res) => {
+    // ── Verificação de limite por plano ──────────────────────────────
+    const limitKey = LIMITED_ENTITIES[entity];
+    if (limitKey) {
+      const sub = await db.prepare("SELECT plan, status, trial_plan FROM subscriptions WHERE user_id = ?").get(req.user.uid);
+      const activePlan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+      const features = getPlanFeatures(activePlan);
+      const max = features[limitKey];
+
+      if (max !== Infinity && max > 0) {
+        const count = await db.prepare(`SELECT COUNT(*)::int AS c FROM ${entity} WHERE user_id = ?`).get(req.user.uid);
+        if (count.c >= max) {
+          return res.status(403).json({
+            error: `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faça upgrade do seu plano.`,
+            limit: max,
+            current: count.c,
+            plan: activePlan,
+          });
+        }
+      }
+    }
+
     const body = req.body || {};
     try {
       const data = parseEntity(entity, body);

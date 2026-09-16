@@ -1,7 +1,18 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
+import { usePlan } from "../store/plan";
 import { Chart, CloudCheck, CloudOff, Grid, Leaf, Logout, Basket, Box, WifiOff } from "../components/icons";
+import { Badge } from "../components/ui";
+import { useState } from "react";
+import { UpgradeModal } from "../components/UpgradeModal";
+
+const PLAN_BADGES: Record<string, { label: string; tone: "gray" | "green" | "blue" | "amber" }> = {
+  free: { label: "Free", tone: "gray" },
+  basico: { label: "Básico", tone: "green" },
+  pro: { label: "Pro", tone: "blue" },
+  premium: { label: "Premium", tone: "amber" },
+};
 
 const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/", label: "Painel", icon: <Grid />, end: true },
@@ -33,16 +44,54 @@ function Cloud({}: {}) {
 
 export default function Layout() {
   const { session, logout, pendingSync, online } = useAuth();
+  const { plan, trialRemaining, status, blocked, clockWarning } = usePlan();
   const navigate = useNavigate();
+  const [showUpgrade, setShowUpgrade] = useState(false);
   if (!session) {
     navigate("/login");
     return null;
   }
 
   const synced = pendingSync === 0 && online;
+  const planBadge = PLAN_BADGES[plan] || PLAN_BADGES.free;
+
+  // Bloqueio de integridade
+  if (blocked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-red-50 p-4">
+        <div className="max-w-md text-center">
+          <div className="mb-4 text-6xl">🚫</div>
+          <h1 className="text-xl font-bold text-red-800">Acesso Bloqueado</h1>
+          <p className="mt-2 text-sm text-red-600">
+            Detectamos atividade suspeita nesta conta. Se você acha que isso é um erro, entre em contato com o suporte.
+          </p>
+          <button onClick={logout} className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
+            Sair
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
+      {/* Clock warning banner */}
+      {clockWarning && (
+        <div className="bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
+          ⚠️ Possível manipulação de relógio detectada. Verifique a data/hora do seu dispositivo.
+        </div>
+      )}
+
+      {/* Trial expiring soon banner */}
+      {status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
+        <div className="bg-blue-50 px-4 py-2 text-center text-xs font-medium text-blue-800">
+          Seu trial termina em {trialRemaining} dia(s).{" "}
+          <button onClick={() => navigate("/upgrade")} className="underline hover:text-blue-600">
+            Assine agora
+          </button>
+        </div>
+      )}
+
       {/* Sidebar (somente desktop) */}
       <aside className="hidden lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-stone-200 lg:bg-white">
         <div className="flex items-center gap-2 px-5 py-5">
@@ -72,6 +121,18 @@ export default function Layout() {
           ))}
         </nav>
         <div className="space-y-2 border-t border-stone-200 p-4">
+          {/* Plano badge + upgrade */}
+          <button
+            onClick={() => plan === "free" ? navigate("/upgrade") : setShowUpgrade(true)}
+            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+              plan === "free"
+                ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                : "bg-stone-50 text-stone-600 hover:bg-stone-100"
+            }`}
+          >
+            <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+            {plan === "free" && <span className="ml-auto text-[10px]">Upgrade →</span>}
+          </button>
           <div
             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium ${
               online ? (synced ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700") : "bg-stone-100 text-stone-500"
@@ -122,6 +183,8 @@ export default function Layout() {
           </div>
         </nav>
       </div>
+
+      <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
     </div>
   );
 }

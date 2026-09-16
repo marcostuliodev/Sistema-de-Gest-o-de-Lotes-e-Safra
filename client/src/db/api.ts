@@ -93,3 +93,56 @@ export async function fetchPerformance() {
 }
 
 export type { EntityName };
+
+// ── Upgrade / Planos ────────────────────────────────────────────────
+
+export interface PlanData {
+  id: string;
+  label: string;
+  features: {
+    maxLotes: number;
+    maxPlantios: number;
+    relatoriosAvancados: boolean;
+    climaAlertas: boolean;
+    label: string;
+  };
+  price: { monthly: number; annual: number } | null;
+}
+
+export async function fetchPlans(): Promise<{ plans: PlanData[]; trialDays: number }> {
+  const res = await fetch("/api/upgrade/plans", { credentials: "include" });
+  if (!res.ok) throw new Error("Erro ao carregar planos");
+  return res.json();
+}
+
+export async function fetchLicense(): Promise<{
+  plan: string;
+  features: PlanData["features"];
+  license: string | null;
+  status: string;
+  trialEnd: string | null;
+}> {
+  const res = await request("/api/upgrade/license");
+  if (!res.ok) throw new Error("Erro ao carregar licença");
+  return res.json();
+}
+
+export async function startTrial(plan: string): Promise<{ plan: string; trialEnd: string; license: string }> {
+  const res = await request("/api/upgrade/trial", {
+    method: "POST",
+    body: JSON.stringify({ plan }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erro ao iniciar trial");
+  return data;
+}
+
+export async function createCheckout(plan: string, billing: string): Promise<{ url: string; sessionId: string }> {
+  const res = await request("/api/upgrade/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan, billing }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erro ao criar sessão de pagamento");
+  return data;
+}

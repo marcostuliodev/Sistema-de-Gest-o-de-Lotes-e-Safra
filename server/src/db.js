@@ -174,6 +174,60 @@ CREATE TABLE IF NOT EXISTS weather_alerts (
   body TEXT NOT NULL,
   sent_at TEXT NOT NULL DEFAULT now()::text
 );
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Sistema de Upgrade / Assinaturas
+-- ═══════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT NOT NULL DEFAULT 'free',
+  status TEXT NOT NULL DEFAULT 'active',
+  stripe_subscription_id TEXT,
+  stripe_customer_id TEXT,
+  trial_started_at TEXT,
+  trial_plan TEXT,
+  current_period_start TEXT,
+  current_period_end TEXT,
+  billing TEXT NOT NULL DEFAULT 'monthly',
+  created_at TEXT NOT NULL DEFAULT now()::text,
+  updated_at TEXT NOT NULL DEFAULT now()::text,
+  UNIQUE(user_id)
+);
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Proteção contra manipulação de relógio
+-- ═══════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS clock_heartbeat (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  last_server_time TEXT NOT NULL,
+  last_device_time TEXT NOT NULL,
+  drift_warnings INTEGER NOT NULL DEFAULT 0,
+  compromised INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT now()::text
+);
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Integridade do dispositivo (root/jailbreak/dev mode)
+-- ═══════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS integrity_log (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  signal TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'low',
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT now()::text
+);
+
+CREATE TABLE IF NOT EXISTS integrity_score (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL DEFAULT 100,
+  blocked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT now()::text
+);
 `;
 
 export async function migrate() {
