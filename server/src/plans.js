@@ -23,7 +23,7 @@ export const PLANS = Object.freeze({
     maxLotes: 5,
     maxPlantios: 15,
     relatoriosAvancados: true,
-    climaAlertas: false,
+    climaAlertas: true,
   }),
   pro: Object.freeze({
     label: "Pro",
