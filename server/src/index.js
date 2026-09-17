@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { db, migrate } from "./db.js";
+import { col, migrate } from "./db.js";
 import { createDemoAccount } from "./routes/auth.js";
 import authRouter from "./routes/auth.js";
 import crudRouter from "./routes/crud.js";
@@ -98,8 +98,9 @@ async function bootstrap() {
   await logCronKey().catch(() => {});
 
   if (process.env.SEED_DEMO !== "false") {
-    const users = await db.prepare("SELECT COUNT(*) AS c FROM users").get();
-    if (users.c === 0) {
+    const usersCol = await col("users");
+    const count = await usersCol.countDocuments();
+    if (count === 0) {
       console.log("Banco novo — semeando dados demo...");
       const { seed } = await import("./seed.js");
       await seed();
@@ -128,11 +129,12 @@ if (!IS_PROD && !IS_VERCEL) {
 // Rotas da API
 // ═══════════════════════════════════════════════════════════════════════
 app.get("/api/health", async (_req, res) => {
-  const hasDb = !!process.env.DATABASE_URL;
+  const hasDb = !!process.env.MONGODB_URI;
   let dbOk = false;
   if (hasDb) {
     try {
-      await db.prepare("SELECT 1").get();
+      const c = await col("users");
+      await c.findOne({});
       dbOk = true;
     } catch { dbOk = false; }
   }
