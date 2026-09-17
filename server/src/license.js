@@ -40,19 +40,16 @@ function ensureKeys() {
   const PRIVATE_KEY_PATH = path.join(KEYS_DIR, "license_private.pem");
   const PUBLIC_KEY_PATH = path.join(KEYS_DIR, "license_public.pem");
 
-  if (fs.existsSync(PRIVATE_KEY_PATH) && fs.existsSync(PUBLIC_KEY_PATH)) {
-    privateKey = fs.readFileSync(PRIVATE_KEY_PATH, "utf8");
-    publicKey = fs.readFileSync(PUBLIC_KEY_PATH, "utf8");
-    return;
-  }
+  try {
+    if (fs.existsSync(PRIVATE_KEY_PATH) && fs.existsSync(PUBLIC_KEY_PATH)) {
+      privateKey = fs.readFileSync(PRIVATE_KEY_PATH, "utf8");
+      publicKey = fs.readFileSync(PUBLIC_KEY_PATH, "utf8");
+      return;
+    }
+  } catch { /* filesystem read-only (Vercel) */ }
 
-  // 3. Gera novas chaves (primeiro boot local)
-  if (!fs.existsSync(KEYS_DIR)) {
-    fs.mkdirSync(KEYS_DIR, { recursive: true });
-  }
-
+  // 3. Gera novas chaves em memória (serverless) ou em disco (local)
   console.log("[license] Gerando par de chaves RS256 para assinatura de licenças...");
-  console.log("[license] IMPORTANTE: Para Vercel, salve as chaves como env vars LICENSE_PRIVATE_KEY e LICENSE_PUBLIC_KEY.");
   const { privateKey: priv, publicKey: pub } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
     privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -60,9 +57,17 @@ function ensureKeys() {
   });
   privateKey = priv;
   publicKey = pub;
-  fs.writeFileSync(PRIVATE_KEY_PATH, priv, { mode: 0o600 });
-  fs.writeFileSync(PUBLIC_KEY_PATH, pub, { mode: 0o644 });
-  console.log("[license] Chaves geradas em:", KEYS_DIR);
+
+  try {
+    if (!fs.existsSync(KEYS_DIR)) {
+      fs.mkdirSync(KEYS_DIR, { recursive: true });
+    }
+    fs.writeFileSync(PRIVATE_KEY_PATH, priv, { mode: 0o600 });
+    fs.writeFileSync(PUBLIC_KEY_PATH, pub, { mode: 0o644 });
+    console.log("[license] Chaves salvas em:", KEYS_DIR);
+  } catch {
+    console.warn("[license] Filesystem read-only (Vercel). Chaves geradas em memória. Defina LICENSE_PRIVATE_KEY e LICENSE_PUBLIC_KEY como env vars.");
+  }
 }
 
 /** Retorna a chave pública PEM (para embutir no bundle do cliente). */

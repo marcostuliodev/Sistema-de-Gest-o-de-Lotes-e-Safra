@@ -234,7 +234,14 @@ export async function migrate() {
     .map((s) => s.trim())
     .filter(Boolean);
   for (const s of stmts) {
-    await pool.query(s);
+    try {
+      await pool.query(s);
+    } catch (e) {
+      // Ignora "already exists" — mas loga erros reais
+      if (!e.message?.includes("already exists")) {
+        console.error("[migrate] Falha:", e.message, "| SQL:", s.slice(0, 80));
+      }
+    }
   }
 }
 
