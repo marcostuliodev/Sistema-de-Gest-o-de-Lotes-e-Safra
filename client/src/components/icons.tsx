@@ -22,3 +22,15 @@ export const Warning = (p: SVGProps<SVGSVGElement>) => base(p, "M10.29 3.86 1.82
 export const WifiOff = (p: SVGProps<SVGSVGElement>) => base(p, "M2 8.82a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16.1a5 5 0 0 1 7 0M1 1l22 22M12 20h.01");
 export const Camera = (p: SVGProps<SVGSVGElement>) => base(p, "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z");
 export const Image = (p: SVGProps<SVGSVGElement>) => base(p, "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z");
+export const TrendingUp = (p: SVGProps<SVGSVGElement>) => base(p, "M22 7 13.5 15.5 8.5 10.5 2 17M22 7l-7 5 4 4-5 4");
+export const Users = (p: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em" {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+export const Check = (p: SVGProps<SVGSVGElement>) => base(p, "M20 6 9 17l-5-5");
+export const Clock = (p: SVGProps<SVGSVGElement>) => base(p, "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10ZM12 6v6l4 2");
+export const Mail = (p: SVGProps<SVGSVGElement>) => base(p, "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2ZM22 6l-10 7L2 6");

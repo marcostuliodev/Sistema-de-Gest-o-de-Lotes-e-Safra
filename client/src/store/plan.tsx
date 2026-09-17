@@ -17,6 +17,8 @@ import { runIntegrityCheck, startIntegrityMonitoring } from "../lib/integrity";
 export interface PlanFeatures {
   maxLotes: number;
   maxPlantios: number;
+  maxFotos: number;
+  maxColaboradores: number;
   relatoriosAvancados: boolean;
   climaAlertas: boolean;
   label: string;
@@ -39,6 +41,8 @@ interface PlanCtx {
 const FREE_FEATURES: PlanFeatures = {
   maxLotes: 1,
   maxPlantios: 5,
+  maxFotos: 0,
+  maxColaboradores: 0,
   relatoriosAvancados: false,
   climaAlertas: false,
   label: "Gratuito",
@@ -66,7 +70,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       const localResult = await validateStoredLicense(session.user.id);
       if (localResult.valid) {
         setPlan(localResult.plan);
-        setFeatures(localResult.features);
+        setFeatures({ ...FREE_FEATURES, ...(localResult.features || {}) });
         setStatus("active");
       }
 
@@ -76,7 +80,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           setPlan(data.plan);
-          setFeatures(data.features || FREE_FEATURES);
+          setFeatures({ ...FREE_FEATURES, ...(data.features || {}) });
           setStatus(data.status || "free");
           setTrialEnd(data.trialEnd || null);
 

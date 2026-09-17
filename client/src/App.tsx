@@ -14,7 +14,9 @@ const Colheitas = lazy(() => import("./pages/colheitas"));
 const Relatorios = lazy(() => import("./pages/relatorios"));
 const Clima = lazy(() => import("./pages/clima"));
 const Historico = lazy(() => import("./pages/historico"));
+const Analytics = lazy(() => import("./pages/analytics"));
 const Upgrade = lazy(() => import("./pages/upgrade"));
+const Colaboradores = lazy(() => import("./pages/colaboradores"));
 
 function Loading() {
   return <p className="p-6 text-sm text-stone-400">Carregando…</p>;
@@ -109,10 +111,26 @@ export default function App() {
             }
           />
           <Route
+            path="/analytics"
+            element={
+              <Suspense fallback={<Loading />}>
+                <Analytics />
+              </Suspense>
+            }
+          />
+          <Route
             path="/upgrade"
             element={
               <Suspense fallback={<Loading />}>
                 <Upgrade />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/colaboradores"
+            element={
+              <Suspense fallback={<Loading />}>
+                <Colaboradores />
               </Suspense>
             }
           />

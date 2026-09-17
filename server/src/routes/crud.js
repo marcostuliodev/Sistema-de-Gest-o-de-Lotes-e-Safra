@@ -12,19 +12,73 @@ const LIMITED_ENTITIES = {
   plantios: "maxPlantios",
 };
 
+/**
+ * Check if user has access to entity (owner or collaborator).
+ * Returns { hasAccess: boolean, isOwner: boolean, canWrite: boolean }
+ */
+async function checkAccess(entity, userId, resourceId = null) {
+  const collabsCol = await col("collaborators");
+
+  // Check if user is an active collaborator
+  const collab = await collabsCol.findOne({
+    user_id: userId,
+    status: "active",
+  });
+
+  if (collab) {
+    // User is a collaborator - check permissions
+    const canWrite = collab.role === "admin";
+    return { hasAccess: true, isOwner: false, canWrite };
+  }
+
+  // User is owner
+  return { hasAccess: true, isOwner: true, canWrite: true };
+}
+
 function crudRouter(entity) {
   const router = Router();
   router.use(authMiddleware);
 
   router.get("/", asyncHandler(async (req, res) => {
     const c = await col(entity);
-    const rows = await c.find({ user_id: req.user.uid }).sort({ _id: -1 }).toArray();
+    const { hasAccess, isOwner } = await checkAccess(entity, req.user.uid);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Acesso negado" });
+    }
+
+    let filter;
+    if (isOwner) {
+      // Owner sees their own data
+      filter = { user_id: req.user.uid };
+    } else {
+      // Collaborator sees data from all owners they collaborate with
+      const collabsCol = await col("collaborators");
+      const collabs = await collabsCol.find({
+        user_id: req.user.uid,
+        status: "active",
+      }).toArray();
+      const ownerIds = collabs.map(c => c.owner_id);
+      filter = { user_id: { $in: ownerIds } };
+    }
+
+    const rows = await c.find(filter).sort({ _id: -1 }).toArray();
     res.json(sanitizeSnapshot({ [entity]: rows })[entity]);
   }));
 
   router.post("/", asyncHandler(async (req, res) => {
+    const { hasAccess, isOwner, canWrite } = await checkAccess(entity, req.user.uid);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Acesso negado" });
+    }
+
+    if (!canWrite) {
+      return res.status(403).json({ error: "Voce nao tem permissao para criar registros" });
+    }
+
     const limitKey = LIMITED_ENTITIES[entity];
-    if (limitKey) {
+    if (limitKey && isOwner) {
       const sub = await (await col("subscriptions")).findOne({ user_id: req.user.uid });
       const activePlan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
       const features = getPlanFeatures(activePlan);
@@ -34,7 +88,7 @@ function crudRouter(entity) {
         const count = await (await col(entity)).countDocuments({ user_id: req.user.uid });
         if (count >= max) {
           return res.status(403).json({
-            error: `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faça upgrade do seu plano.`,
+            error: `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faca upgrade do seu plano.`,
             limit: max,
             current: count,
             plan: activePlan,
@@ -52,7 +106,14 @@ function crudRouter(entity) {
 
     const fields = copyable[entity].filter((f) => body[f] !== undefined);
     const id = body.id || uuid();
-    const doc = { _id: id, id, user_id: req.user.uid };
+    // For collaborators, use the owner's user_id
+    let ownerId = req.user.uid;
+    if (!isOwner) {
+      const collabsCol = await col("collaborators");
+      const collab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
+      ownerId = collab?.owner_id || req.user.uid;
+    }
+    const doc = { _id: id, id, user_id: ownerId };
     for (const f of fields) doc[f] = body[f];
 
     const c = await col(entity);
@@ -62,8 +123,33 @@ function crudRouter(entity) {
 
   router.put("/:id", asyncHandler(async (req, res) => {
     const id = req.params.id;
+    const { hasAccess, isOwner, canWrite } = await checkAccess(entity, req.user.uid);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Acesso negado" });
+    }
+
+    if (!canWrite) {
+      return res.status(403).json({ error: "Voce nao tem permissao para editar registros" });
+    }
+
     const c = await col(entity);
-    const existing = await c.findOne({ _id: id, user_id: req.user.uid });
+
+    // Check ownership - either owner or collaborator
+    let existing;
+    if (isOwner) {
+      existing = await c.findOne({ _id: id, user_id: req.user.uid });
+    } else {
+      // Collaborator can edit records from owners they collaborate with
+      const collabsCol = await col("collaborators");
+      const collabs = await collabsCol.find({
+        user_id: req.user.uid,
+        status: "active",
+      }).toArray();
+      const ownerIds = collabs.map(c => c.owner_id);
+      existing = await c.findOne({ _id: id, user_id: { $in: ownerIds } });
+    }
+
     if (!existing) return res.status(404).json({ error: "Registro nao encontrado" });
 
     try {
@@ -85,8 +171,33 @@ function crudRouter(entity) {
   }));
 
   router.delete("/:id", asyncHandler(async (req, res) => {
+    const { hasAccess, isOwner, canWrite } = await checkAccess(entity, req.user.uid);
+
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Acesso negado" });
+    }
+
+    if (!canWrite) {
+      return res.status(403).json({ error: "Voce nao tem permissao para excluir registros" });
+    }
+
     const c = await col(entity);
-    const result = await c.deleteOne({ _id: req.params.id, user_id: req.user.uid });
+
+    // Check ownership - either owner or collaborator
+    let result;
+    if (isOwner) {
+      result = await c.deleteOne({ _id: req.params.id, user_id: req.user.uid });
+    } else {
+      // Collaborator can delete records from owners they collaborate with
+      const collabsCol = await col("collaborators");
+      const collabs = await collabsCol.find({
+        user_id: req.user.uid,
+        status: "active",
+      }).toArray();
+      const ownerIds = collabs.map(c => c.owner_id);
+      result = await c.deleteOne({ _id: req.params.id, user_id: { $in: ownerIds } });
+    }
+
     if (result.deletedCount === 0) return res.status(404).json({ error: "Registro nao encontrado" });
     res.status(204).end();
   }));

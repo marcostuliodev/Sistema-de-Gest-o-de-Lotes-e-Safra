@@ -2,7 +2,7 @@ import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
 import { usePlan } from "../store/plan";
-import { Chart, CloudCheck, CloudOff, Grid, Leaf, Logout, Basket, Box, WifiOff } from "../components/icons";
+import { Chart, CloudCheck, CloudOff, Grid, Leaf, Logout, Basket, Box, WifiOff, Users } from "../components/icons";
 import { Badge } from "../components/ui";
 import { useState } from "react";
 import { UpgradeModal } from "../components/UpgradeModal";
@@ -23,6 +23,7 @@ const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/colheitas", label: "Colheitas", icon: <Basket /> },
   { to: "/relatorios", label: "Relatórios", icon: <Chart /> },
   { to: "/clima", label: "Clima", icon: <Cloud /> },
+  { to: "/colaboradores", label: "Colaboradores", icon: <Users /> },
 ];
 
 function Map({}: {}) {
@@ -163,7 +164,7 @@ export default function Layout() {
 
         {/* Barra de navegação inferior (mobile) — em fluxo, nunca cobre o conteúdo */}
         <nav className="border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
-          <div className="grid grid-cols-8 px-1 py-1">
+          <div className="grid grid-cols-9 px-1 py-1">
             {nav.map((item) => (
               <NavLink
                 key={item.to}
