@@ -127,7 +127,17 @@ if (!IS_PROD && !IS_VERCEL) {
 // ═══════════════════════════════════════════════════════════════════════
 // Rotas da API
 // ═══════════════════════════════════════════════════════════════════════
-app.get("/api/health", (_req, res) => res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString(), hasDb: !!process.env.DATABASE_URL }));
+app.get("/api/health", async (_req, res) => {
+  const hasDb = !!process.env.DATABASE_URL;
+  let dbOk = false;
+  if (hasDb) {
+    try {
+      await db.prepare("SELECT 1").get();
+      dbOk = true;
+    } catch { dbOk = false; }
+  }
+  res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString(), hasDb, dbOk });
+});
 
 app.use("/api/auth", authRouter);
 app.use("/api/lotes", crudRouter("lotes"));
