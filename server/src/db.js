@@ -36,9 +36,6 @@ if (!connStr) {
   console.error(
     "FATAL: DATABASE_URL não definida. O PostgreSQL precisa ser provisionado e conectado ao serviço."
   );
-  if (process.env.NODE_ENV === "production") {
-    process.exit(1);
-  }
 }
 
 // Converte "?" (estilo SQLite) em "$1, $2, ..." (estilo pg).
