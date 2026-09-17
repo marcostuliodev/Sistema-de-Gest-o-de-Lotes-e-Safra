@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
 import { usePlan } from "../store/plan";
@@ -48,8 +48,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
   if (!session) {
-    navigate("/login");
-    return null;
+    return <Navigate to="/login" replace />;
   }
 
   const synced = pendingSync === 0 && online;

@@ -31,14 +31,19 @@ router.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
   const parsedEmail = emailSchema.safeParse(email);
   if (!parsedEmail.success) return res.status(401).json({ error: "Credenciais invalidas" });
-  const user = await db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").get(parsedEmail.data);
-  if (!user || !(await bcrypt.compare(password || "", user.password_hash))) {
-    return res.status(401).json({ error: "Credenciais invalidas" });
+  try {
+    const user = await db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").get(parsedEmail.data);
+    if (!user || !(await bcrypt.compare(password || "", user.password_hash))) {
+      return res.status(401).json({ error: "Credenciais invalidas" });
+    }
+    const safe = { id: user.id, name: user.name, email: user.email };
+    const token = signToken(safe);
+    setAuthCookie(res, token);
+    res.json({ user: safe, token });
+  } catch (e) {
+    console.error("[login] Erro:", e.message);
+    res.status(500).json({ error: "Erro interno no login" });
   }
-  const safe = { id: user.id, name: user.name, email: user.email };
-  const token = signToken(safe);
-  setAuthCookie(res, token);
-  res.json({ user: safe, token });
 }));
 
 export async function createDemoAccount() {

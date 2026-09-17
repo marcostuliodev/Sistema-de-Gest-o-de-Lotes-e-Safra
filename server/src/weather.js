@@ -57,14 +57,21 @@ const CACHE_TTL = 10 * 60 * 1000;
 
 async function getJson(url) {
   try {
-    const res = await fetch(url, { timeout: 10000 });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let res;
+    try {
+      res = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!res.ok) {
       const errText = await res.text().catch(() => "Sem resposta do servidor");
       throw new Error(`Open-Meteo ${res.status}: ${errText.slice(0, 200)}`);
     }
     return res.json();
   } catch (e) {
-    // Erro de rede ou timeout - re-lança com mensagem mais clara
+    if (e.name === "AbortError") throw new Error("Open-Meteo: timeout (10s)");
     throw new Error(`Erro ao consultar Open-Meteo: ${e.message || "Sem detalhes"}`);
   }
 }
@@ -146,7 +153,7 @@ export async function fetchWeather(lat, lon, tz = "auto") {
     return result;
   } catch (e) {
     // Em caso de falha na API Open-Meteo, lança erro com mensagem clara
-    throw new Error(`Falha ao obter dados meteorológicos: ${(e as Error).message}`);
+    throw new Error(`Falha ao obter dados meteorológicos: ${e && e.message ? e.message : "desconhecido"}`);
   }
 }
 

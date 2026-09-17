@@ -48,10 +48,12 @@ router.post(
     if (!Number.isFinite(la) || !Number.isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) {
       return res.status(400).json({ error: "Coordenadas inválidas" });
     }
+    const safeCity = String(city || "").slice(0, 200);
+    const safeTz = String(tz || "auto").slice(0, 64);
     await db
       .prepare("UPDATE users SET lat = ?, lon = ?, city = ?, tz = ? WHERE id = ?")
-      .run(la, lo, String(city || ""), String(tz || "auto"), req.user.uid);
-    res.json({ ok: true, location: { lat: la, lon: lo, city: city || "", tz: tz || "auto" } });
+      .run(la, lo, safeCity, safeTz, req.user.uid);
+    res.json({ ok: true, location: { lat: la, lon: lo, city: safeCity, tz: safeTz } });
   })
 );
 

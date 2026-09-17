@@ -138,14 +138,14 @@ export async function sendHeartbeat(): Promise<ClockCheckResult> {
 export function initClockGuard(): ClockCheckResult {
   const result = checkClockLocal();
 
-  // Agenda verificação periódica (a cada 5 minutos quando online)
+  let intervalId: ReturnType<typeof setInterval> | null = null;
   if (typeof window !== "undefined") {
-    setInterval(() => {
+    intervalId = setInterval(() => {
       if (navigator.onLine) {
         sendHeartbeat();
       }
     }, 5 * 60 * 1000);
   }
 
-  return result;
+  return { ...result, _cleanup: () => { if (intervalId != null) clearInterval(intervalId); } };
 }

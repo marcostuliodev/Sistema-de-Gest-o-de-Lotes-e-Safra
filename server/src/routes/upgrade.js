@@ -315,7 +315,11 @@ router.post("/integrity", authMiddleware, asyncHandler(async (req, res) => {
 async function activatePlan(userId, plan, billing, stripeSubId) {
   const now = new Date();
   const periodEnd = new Date(now);
-  periodEnd.setMonth(periodEnd.getMonth() + 1);
+  if (billing === "annual") {
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+  } else {
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+  }
 
   await db.prepare(
     `INSERT INTO subscriptions (user_id, plan, status, stripe_subscription_id, billing, current_period_start, current_period_end, updated_at)
@@ -340,7 +344,12 @@ async function renewSubscription(stripeSubId) {
   if (!row) return;
 
   const newEnd = new Date(row.current_period_end || new Date());
-  newEnd.setMonth(newEnd.getMonth() + 1);
+  const sub = await db.prepare("SELECT billing FROM subscriptions WHERE stripe_subscription_id = ?").get(stripeSubId);
+  if (sub && sub.billing === "annual") {
+    newEnd.setFullYear(newEnd.getFullYear() + 1);
+  } else {
+    newEnd.setMonth(newEnd.getMonth() + 1);
+  }
 
   await db.prepare(
     "UPDATE subscriptions SET current_period_end = ?, updated_at = now()::text WHERE stripe_subscription_id = ?"

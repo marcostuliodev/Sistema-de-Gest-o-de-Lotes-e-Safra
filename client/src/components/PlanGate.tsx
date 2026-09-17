@@ -48,14 +48,18 @@ export function PlanGate({
   }
 
   // Verifica por feature específica
-  if (feature && typeof features[feature] === "boolean") {
-    if (features[feature]) return <>{children}</>;
+  if (feature) {
+    if (features[feature] === true) return <>{children}</>;
+    if (typeof features[feature] === "number" && features[feature] > 0) return <>{children}</>;
   }
 
   // Verifica por plano mínimo
   if (minPlan && planLevel(plan) >= planLevel(minPlan)) {
     return <>{children}</>;
   }
+
+  // Sem nenhuma condição atendida — bloqueia
+  if (!feature && !minPlan) return <>{children}</>;
 
   // Bloqueado — renderiza fallback ou CTA padrão
   if (fallback) return <>{fallback}</>;

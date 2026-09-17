@@ -123,7 +123,7 @@ export async function validateLicense(signedLicense: string, userId: number): Pr
     if (license.uid !== userId) return { ...fallback, reason: "user_mismatch" };
     if (new Date(license.exp) < new Date()) return { ...fallback, reason: "expirado" };
 
-    return { valid: true, plan: license.plan, features: FREE_FEATURES };
+    return { valid: true, plan: license.plan, features: license.features };
   } catch {
     return fallback;
   }

@@ -44,12 +44,13 @@ const refreshOutbox = useCallback(() => {
     window.addEventListener("agrolote:synced", onSync);
     window.addEventListener("agrolote:logout", onLogout);
     refreshOutbox();
-    setInterval(refreshOutbox, 10000);
+    const outboxInterval = setInterval(refreshOutbox, 10000);
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("agrolote:synced", onSync);
       window.removeEventListener("agrolote:logout", onLogout);
+      clearInterval(outboxInterval);
     };
   }, [refreshOutbox]);
 

@@ -99,20 +99,21 @@ function fireSyncDebounced() {
   debounceTimer = setTimeout(() => void runSync(), 1500);
 }
 
-export function startSyncWatcher() {
+export function startSyncWatcher(): () => void {
   const onOnline = () => void runSync();
   const onLocal = () => void runSync();
+  const onVisibility = () => { if (document.visibilityState === "visible") void runSync(); };
   window.addEventListener("online", onOnline);
   window.addEventListener("agrolote:local-change", onLocal);
   window.addEventListener("agrolote:synced", onLocal);
-  window.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void runSync();
-  });
-  setInterval(() => void runSync(), 60000);
+  window.addEventListener("visibilitychange", onVisibility);
+  const intervalId = setInterval(() => void runSync(), 60000);
   return () => {
     window.removeEventListener("online", onOnline);
-    window.removeEventListener("local-change", onLocal);
-    window.removeEventListener("synced", onLocal);
+    window.removeEventListener("agrolote:local-change", onLocal);
+    window.removeEventListener("agrolote:synced", onLocal);
+    window.removeEventListener("visibilitychange", onVisibility);
+    clearInterval(intervalId);
   };
 }
 

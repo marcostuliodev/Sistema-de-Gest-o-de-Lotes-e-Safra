@@ -73,8 +73,20 @@ export async function runWeatherChecks() {
   }
 }
 
+let running = false;
+
 export function startScheduler() {
-  const tick = () => void runWeatherChecks().catch((e) => console.error("scheduler:", e.message));
-  setTimeout(tick, 30 * 1000); // primeira varredura 30s após subir
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await runWeatherChecks();
+    } catch (e) {
+      console.error("scheduler:", e.message);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(tick, 30 * 1000);
   setInterval(tick, INTERVAL);
 }

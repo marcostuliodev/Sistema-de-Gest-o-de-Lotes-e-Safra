@@ -9,7 +9,7 @@ const connStr = process.env.DATABASE_URL;
 // é ativada automaticamente (rejectUnauthorized=true).
 const ssl = (() => {
   if (!connStr) return undefined;
-  const wantsTls = connStr.includes("render.com") || connStr.includes("sslmode=require");
+  const wantsTls = connStr.includes("render.com") || connStr.includes("neon.tech") || connStr.includes("sslmode=require");
   if (!wantsTls) return undefined;
   const caPath = process.env.PGSSLROOTCERT;
   if (caPath) {
@@ -19,7 +19,6 @@ const ssl = (() => {
       console.error(`[db] PGSSLROOTCERT definido mas ilegível (${caPath}): ${e.message}`);
     }
   }
-  console.warn("[db] TLS sem validação de certificado (rejectUnauthorized=false). Defina PGSSLROOTCERT com o CA da Render para mitigar ataque MITM.");
   return { rejectUnauthorized: false };
 })();
 
@@ -35,8 +34,11 @@ const pool = new pg.Pool({
 
 if (!connStr) {
   console.error(
-    "FATAL: DATABASE_URL não definida. O PostgreSQL (Render) precisa ser provisionado e conectado ao serviço web (re-aplique o Blueprint). Sem isso, nenhuma rota de API funciona."
+    "FATAL: DATABASE_URL não definida. O PostgreSQL precisa ser provisionado e conectado ao serviço."
   );
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
 }
 
 // Converte "?" (estilo SQLite) em "$1, $2, ..." (estilo pg).

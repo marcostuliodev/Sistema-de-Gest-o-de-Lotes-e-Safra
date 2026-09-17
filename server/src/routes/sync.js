@@ -16,7 +16,7 @@ const MAX_OPS = 100;
 async function ensureUser(t, user) {
   const exists = await t.prepare("SELECT id FROM users WHERE id = ?").get(user.uid);
   if (exists) return;
-  const hash = bcrypt.hashSync(crypto.randomBytes(24).toString("hex"), 10);
+  const hash = await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
   const name = (user.email || "Produtor").split("@")[0] || "Produtor";
   await t.prepare("INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)").run(user.uid, name, user.email || `u${user.uid}@local`, hash);
   await bumpUsersSequence();

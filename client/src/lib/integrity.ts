@@ -36,7 +36,6 @@ function detectDevTools(): boolean {
   console.log("%c", element);
   // Se devtools está aberto, console.log pode ser lento
   const start = performance.now();
-  debugger; // eslint-disable-line no-debugger
   const elapsed = performance.now() - start;
   return elapsed > threshold;
 }
@@ -194,16 +193,15 @@ export async function runIntegrityCheck(): Promise<{ score: number; blocked: boo
 /**
  * Agenda verificação periódica de integridade.
  */
-export function startIntegrityMonitoring() {
-  // Verifica a cada 30 segundos
-  if (typeof window !== "undefined") {
-    setInterval(() => {
-      if (navigator.onLine) {
-        const signals = collectSignals();
-        if (signals.length > 0) {
-          reportIntegrity(signals);
-        }
+export function startIntegrityMonitoring(): () => void {
+  if (typeof window === "undefined") return () => {};
+  const id = setInterval(() => {
+    if (navigator.onLine) {
+      const signals = collectSignals();
+      if (signals.length > 0) {
+        reportIntegrity(signals);
       }
-    }, 30000);
-  }
+    }
+  }, 30000);
+  return () => clearInterval(id);
 }

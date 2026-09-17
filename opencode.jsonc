@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "atlas-coordinator",
+  "agent": {
+    "atlas-coordinator": {
+      "mode": "primary",
+      "description": "Atlas team coordinator - orchestrate the complete senior software development company"
+    }
+  }
+}
