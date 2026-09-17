@@ -13,7 +13,7 @@
 
 import express, { Router } from "express";
 import crypto from "node:crypto";
-import { db } from "../db.js";
+import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, isValidPlan } from "../plans.js";
@@ -72,7 +72,8 @@ router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
   }
 
   // Busca ou cria customer
-  const sub = await db.prepare("SELECT stripe_customer_id FROM subscriptions WHERE user_id = ?").get(req.user.uid);
+  const subs = await col("subscriptions");
+  const sub = await subs.findOne({ user_id: req.user.uid });
   let customerId = sub?.stripe_customer_id;
 
   if (!customerId) {
@@ -82,11 +83,11 @@ router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
       metadata: { userId: String(req.user.uid) },
     });
     customerId = customer.id;
-    await db.prepare(
-      `INSERT INTO subscriptions (user_id, stripe_customer_id)
-       VALUES (?, ?)
-       ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id`
-    ).run(req.user.uid, customerId);
+    await subs.updateOne(
+      { user_id: req.user.uid },
+      { $set: { stripe_customer_id: customerId } },
+      { upsert: true }
+    );
   }
 
   const stripe = (await import("stripe")).default(STRIPE_SECRET);
@@ -180,9 +181,8 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Plano inválido" });
   }
 
-  const existing = await db.prepare(
-    "SELECT plan, status, trial_started_at FROM subscriptions WHERE user_id = ?"
-  ).get(req.user.uid);
+  const subs = await col("subscriptions");
+  const existing = await subs.findOne({ user_id: req.user.uid });
 
   // Já tem trial ou assinatura ativa
   if (existing && existing.status === "active" && existing.plan !== "free") {
@@ -203,17 +203,21 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
 
   const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000);
 
-  await db.prepare(
-    `INSERT INTO subscriptions (user_id, plan, status, trial_started_at, trial_plan, current_period_start, current_period_end, updated_at)
-     VALUES (?, 'free', 'trial', now()::text, ?, now()::text, ?, now()::text)
-     ON CONFLICT (user_id) DO UPDATE SET
-       status = 'trial',
-       trial_started_at = now()::text,
-       trial_plan = EXCLUDED.trial_plan,
-       current_period_start = now()::text,
-       current_period_end = EXCLUDED.current_period_end,
-       updated_at = now()::text`
-  ).run(req.user.uid, plan, trialEnd.toISOString());
+  await subs.updateOne(
+    { user_id: req.user.uid },
+    {
+      $set: {
+        plan: "free",
+        status: "trial",
+        trial_started_at: new Date().toISOString(),
+        trial_plan: plan,
+        current_period_start: new Date().toISOString(),
+        current_period_end: trialEnd.toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true }
+  );
 
   const license = generateLicense(req.user.uid, plan, null, trialEnd);
   res.json({ plan, trialEnd: trialEnd.toISOString(), license });
@@ -223,9 +227,8 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
 // GET /api/upgrade/license — Retorna licença assinada do usuário
 // ═══════════════════════════════════════════════════════════════════════
 router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
-  const sub = await db.prepare(
-    "SELECT plan, status, trial_plan, trial_started_at, stripe_subscription_id, current_period_end FROM subscriptions WHERE user_id = ?"
-  ).get(req.user.uid);
+  const subs = await col("subscriptions");
+  const sub = await subs.findOne({ user_id: req.user.uid });
 
   if (!sub || (sub.plan === "free" && sub.status !== "trial")) {
     // Sem assinatura — retorna plano free sem licença assinada
@@ -241,9 +244,10 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
 
     if (new Date() > trialEnd) {
       // Trial expirou — volta para free
-      await db.prepare(
-        "UPDATE subscriptions SET status = 'expired', plan = 'free', updated_at = now()::text WHERE user_id = ?"
-      ).run(req.user.uid);
+      await subs.updateOne(
+        { user_id: req.user.uid },
+        { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
+      );
       activePlan = "free";
     } else {
       activePlan = sub.trial_plan;
@@ -321,45 +325,59 @@ async function activatePlan(userId, plan, billing, stripeSubId) {
     periodEnd.setMonth(periodEnd.getMonth() + 1);
   }
 
-  await db.prepare(
-    `INSERT INTO subscriptions (user_id, plan, status, stripe_subscription_id, billing, current_period_start, current_period_end, updated_at)
-     VALUES (?, ?, 'active', ?, ?, now()::text, ?, now()::text)
-     ON CONFLICT (user_id) DO UPDATE SET
-       plan = EXCLUDED.plan,
-       status = 'active',
-       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-       billing = EXCLUDED.billing,
-       current_period_start = now()::text,
-       current_period_end = EXCLUDED.current_period_end,
-       trial_started_at = NULL,
-       trial_plan = NULL,
-       updated_at = now()::text`
-  ).run(userId, plan, stripeSubId, billing, periodEnd.toISOString());
+  const subs = await col("subscriptions");
+  await subs.updateOne(
+    { user_id: userId },
+    {
+      $set: {
+        plan,
+        status: "active",
+        stripe_subscription_id: stripeSubId,
+        billing,
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        trial_started_at: null,
+        trial_plan: null,
+        updated_at: now.toISOString(),
+      },
+    },
+    { upsert: true }
+  );
 
   console.log(`[upgrade] Plano ${plan} ativado para user ${userId}`);
 }
 
 async function renewSubscription(stripeSubId) {
-  const row = await db.prepare("SELECT user_id, current_period_end FROM subscriptions WHERE stripe_subscription_id = ?").get(stripeSubId);
+  const subs = await col("subscriptions");
+  const row = await subs.findOne({ stripe_subscription_id: stripeSubId });
   if (!row) return;
 
   const newEnd = new Date(row.current_period_end || new Date());
-  const sub = await db.prepare("SELECT billing FROM subscriptions WHERE stripe_subscription_id = ?").get(stripeSubId);
-  if (sub && sub.billing === "annual") {
+  if (row.billing === "annual") {
     newEnd.setFullYear(newEnd.getFullYear() + 1);
   } else {
     newEnd.setMonth(newEnd.getMonth() + 1);
   }
 
-  await db.prepare(
-    "UPDATE subscriptions SET current_period_end = ?, updated_at = now()::text WHERE stripe_subscription_id = ?"
-  ).run(newEnd.toISOString(), stripeSubId);
+  await subs.updateOne(
+    { stripe_subscription_id: stripeSubId },
+    { $set: { current_period_end: newEnd.toISOString(), updated_at: new Date().toISOString() } }
+  );
 }
 
 async function deactivatePlan(stripeSubId) {
-  await db.prepare(
-    "UPDATE subscriptions SET plan = 'free', status = 'cancelled', stripe_subscription_id = NULL, updated_at = now()::text WHERE stripe_subscription_id = ?"
-  ).run(stripeSubId);
+  const subs = await col("subscriptions");
+  await subs.updateOne(
+    { stripe_subscription_id: stripeSubId },
+    {
+      $set: {
+        plan: "free",
+        status: "cancelled",
+        stripe_subscription_id: null,
+        updated_at: new Date().toISOString(),
+      },
+    }
+  );
 }
 
 export default router;

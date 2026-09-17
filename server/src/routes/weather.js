@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../db.js";
+import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { geocode, fetchWeather } from "../weather.js";
@@ -7,7 +7,6 @@ import { geocode, fetchWeather } from "../weather.js";
 const router = Router();
 router.use(authMiddleware);
 
-// Busca cidades (geocodificação).
 router.get(
   "/geocode",
   asyncHandler(async (req, res) => {
@@ -16,14 +15,12 @@ router.get(
   })
 );
 
-// Lê a localização salva do produtor.
 router.get(
   "/location",
   asyncHandler(async (req, res) => {
     try {
-      const row = await db
-        .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
-        .get(req.user.uid);
+      const usersCol = await col("users");
+      const row = await usersCol.findOne({ _id: req.user.uid });
       if (!row || row.lat == null || row.lon == null) {
         res.json({ location: null });
         return;
@@ -38,7 +35,6 @@ router.get(
   })
 );
 
-// Salva a localização da propriedade.
 router.post(
   "/location",
   asyncHandler(async (req, res) => {
@@ -50,21 +46,21 @@ router.post(
     }
     const safeCity = String(city || "").slice(0, 200);
     const safeTz = String(tz || "auto").slice(0, 64);
-    await db
-      .prepare("UPDATE users SET lat = ?, lon = ?, city = ?, tz = ? WHERE id = ?")
-      .run(la, lo, safeCity, safeTz, req.user.uid);
+    const usersCol = await col("users");
+    await usersCol.updateOne(
+      { _id: req.user.uid },
+      { $set: { lat: la, lon: lo, city: safeCity, tz: safeTz } }
+    );
     res.json({ ok: true, location: { lat: la, lon: lo, city: safeCity, tz: safeTz } });
   })
 );
 
-// Clima atual (normalizado) da localização do produtor.
 router.get(
   "/",
   asyncHandler(async (req, res) => {
     try {
-      const row = await db
-        .prepare("SELECT lat, lon, city, tz FROM users WHERE id = ?")
-        .get(req.user.uid);
+      const usersCol = await col("users");
+      const row = await usersCol.findOne({ _id: req.user.uid });
       if (!row || row.lat == null || row.lon == null) {
         return res.status(400).json({ error: "Localização não configurada" });
       }
@@ -77,15 +73,15 @@ router.get(
   })
 );
 
-// Histórico de alertas enviados.
 router.get(
   "/alerts",
   asyncHandler(async (req, res) => {
-    const rows = await db
-      .prepare(
-        "SELECT type, severity, title, body, sent_at FROM weather_alerts WHERE user_id = ? ORDER BY sent_at DESC LIMIT 30"
-      )
-      .all(req.user.uid);
+    const alertsCol = await col("weather_alerts");
+    const rows = await alertsCol
+      .find({ user_id: req.user.uid })
+      .sort({ sent_at: -1 })
+      .limit(30)
+      .toArray();
     res.json({ alerts: rows });
   })
 );

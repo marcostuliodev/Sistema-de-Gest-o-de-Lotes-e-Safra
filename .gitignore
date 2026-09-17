@@ -3,5 +3,7 @@ server/data/
 client/dist/
 *.log
 .env
+.env.*
+atlas-credentials.env
 .vercel/
 .jsonc

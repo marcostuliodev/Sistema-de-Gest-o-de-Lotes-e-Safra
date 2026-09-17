@@ -6,21 +6,9 @@
  * Se houver drift significativo, registra e pode invalidar a licença.
  */
 
-import { db } from "./db.js";
+import { col } from "./db.js";
 
-/**
- * Cria a tabela de heartbeat se não existir (chamar no migrate).
- */
-export const CLOCK_GUARD_MIGRATION = `
-CREATE TABLE IF NOT EXISTS clock_heartbeat (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  last_server_time TEXT NOT NULL,
-  last_device_time TEXT NOT NULL,
-  drift_warnings INTEGER NOT NULL DEFAULT 0,
-  compromised INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL DEFAULT now()::text
-);
-`;
+export const CLOCK_GUARD_MIGRATION = "";
 
 /** Tolerância máxima de drift em milissegundos (1 hora). */
 const MAX_DRIFT_MS = 60 * 60 * 1000;
@@ -45,10 +33,8 @@ export async function checkClock(userId, deviceTime) {
 
   const driftMs = deviceDate.getTime() - now.getTime();
 
-  // Verifica heartbeat anterior
-  const prev = await db.prepare(
-    "SELECT last_server_time, drift_warnings, compromised FROM clock_heartbeat WHERE user_id = ?"
-  ).get(userId);
+  const heartbeatCol = await col("clock_heartbeat");
+  const prev = await heartbeatCol.findOne({ user_id: userId });
 
   // Se já está marcado como comprometido, bloqueia
   if (prev?.compromised) {
@@ -57,16 +43,19 @@ export async function checkClock(userId, deviceTime) {
 
   // Detectou relógio voltou (drift negativo grande)
   if (driftMs < HARD_BLOCK_DRIFT_MS) {
-    await db.prepare(
-      `INSERT INTO clock_heartbeat (user_id, last_server_time, last_device_time, drift_warnings, compromised, updated_at)
-       VALUES (?, ?, ?, 1, 1, now()::text)
-       ON CONFLICT (user_id) DO UPDATE SET
-         last_server_time = EXCLUDED.last_server_time,
-         last_device_time = EXCLUDED.last_device_time,
-         drift_warnings = clock_heartbeat.drift_warnings + 1,
-         compromised = 1,
-         updated_at = now()::text`
-    ).run(userId, now.toISOString(), deviceTime);
+    await heartbeatCol.updateOne(
+      { user_id: userId },
+      {
+        $set: {
+          last_server_time: now.toISOString(),
+          last_device_time: deviceTime,
+          compromised: true,
+          updated_at: new Date().toISOString(),
+        },
+        $inc: { drift_warnings: 1 },
+      },
+      { upsert: true }
+    );
     return { ok: false, serverTime: now.toISOString(), driftMs, compromised: true, reason: "clock_rolled_back" };
   }
 
@@ -74,33 +63,38 @@ export async function checkClock(userId, deviceTime) {
   let warnings = prev?.drift_warnings || 0;
   if (Math.abs(driftMs) > MAX_DRIFT_MS) {
     warnings += 1;
-    // 3 avisos = compromete
     if (warnings >= 3) {
-      await db.prepare(
-        `INSERT INTO clock_heartbeat (user_id, last_server_time, last_device_time, drift_warnings, compromised, updated_at)
-         VALUES (?, ?, ?, ?, 1, now()::text)
-         ON CONFLICT (user_id) DO UPDATE SET
-           last_server_time = EXCLUDED.last_server_time,
-           last_device_time = EXCLUDED.last_device_time,
-           drift_warnings = EXCLUDED.drift_warnings,
-           compromised = 1,
-           updated_at = now()::text`
-      ).run(userId, now.toISOString(), deviceTime, warnings);
+      await heartbeatCol.updateOne(
+        { user_id: userId },
+        {
+          $set: {
+            last_server_time: now.toISOString(),
+            last_device_time: deviceTime,
+            drift_warnings: warnings,
+            compromised: true,
+            updated_at: new Date().toISOString(),
+          },
+        },
+        { upsert: true }
+      );
       return { ok: false, serverTime: now.toISOString(), driftMs, compromised: true, reason: "excessive_drift" };
     }
   }
 
   // Atualiza heartbeat normal
-  await db.prepare(
-    `INSERT INTO clock_heartbeat (user_id, last_server_time, last_device_time, drift_warnings, compromised, updated_at)
-     VALUES (?, ?, ?, ?, 0, now()::text)
-     ON CONFLICT (user_id) DO UPDATE SET
-       last_server_time = EXCLUDED.last_server_time,
-       last_device_time = EXCLUDED.last_device_time,
-       drift_warnings = EXCLUDED.drift_warnings,
-       compromised = 0,
-       updated_at = now()::text`
-  ).run(userId, now.toISOString(), deviceTime, warnings);
+  await heartbeatCol.updateOne(
+    { user_id: userId },
+    {
+      $set: {
+        last_server_time: now.toISOString(),
+        last_device_time: deviceTime,
+        drift_warnings: warnings,
+        compromised: false,
+        updated_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true }
+  );
 
   return { ok: true, serverTime: now.toISOString(), driftMs, compromised: false };
 }
@@ -109,5 +103,6 @@ export async function checkClock(userId, deviceTime) {
  * Reseta o status de comprometimento (usar apenas com ação administrativa).
  */
 export async function resetClockGuard(userId) {
-  await db.prepare("DELETE FROM clock_heartbeat WHERE user_id = ?").run(userId);
+  const heartbeatCol = await col("clock_heartbeat");
+  await heartbeatCol.deleteOne({ user_id: userId });
 }

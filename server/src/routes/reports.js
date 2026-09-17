@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { db } from "../db.js";
+import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { sanitizeSnapshot, sanitizeRow } from "../validation.js";
+import { sanitizeSnapshot } from "../validation.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -10,62 +10,103 @@ router.use(authMiddleware);
 router.get("/dashboard", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
 
-  const active = (await db.prepare("SELECT COUNT(*) c FROM plantios WHERE user_id = ? AND status = 'ativo'").get(uid)).c;
-  const lotes = (await db.prepare("SELECT COUNT(*) c FROM lotes WHERE user_id = ?").get(uid)).c;
-  const harvests = (await db.prepare("SELECT COUNT(*) c FROM colheitas WHERE user_id = ?").get(uid)).c;
+  const plantiosCol = await col("plantios");
+  const lotesCol = await col("lotes");
+  const colheitasCol = await col("colheitas");
+  const gastosCol = await col("gastos");
 
-  const pending = await db.prepare(`
-    SELECT p.*, l.nome AS lote_nome
-    FROM plantios p JOIN lotes l ON l.id = p.lote_id
-    WHERE p.user_id = ? AND p.status NOT IN ('colhido','perdido')
-      AND p.data_colheita_prevista IS NOT NULL AND p.data_colheita_prevista::date >= CURRENT_DATE
-    ORDER BY p.data_colheita_prevista::date LIMIT 25
-  `).all(uid);
+  const [ativos, lotes, harvests] = await Promise.all([
+    plantiosCol.countDocuments({ user_id: uid, status: "ativo" }),
+    lotesCol.countDocuments({ user_id: uid }),
+    colheitasCol.countDocuments({ user_id: uid }),
+  ]);
 
-  const costs = await db.prepare(`
-    SELECT COALESCE(SUM(g.quantidade * g.valor_unitario), 0) AS custo_total,
-           COALESCE(SUM(CASE WHEN g.data::date >= (CURRENT_DATE - INTERVAL '30 days') THEN g.quantidade * g.valor_unitario ELSE 0 END), 0) AS custo_30d
-    FROM gastos g WHERE g.user_id = ?
-  `).get(uid);
+  const pending = await plantiosCol
+    .find({
+      user_id: uid,
+      status: { $nin: ["colhido", "perdido"] },
+      data_colheita_prevista: { $ne: null, $gte: new Date().toISOString().slice(0, 10) },
+    })
+    .sort({ data_colheita_prevista: 1 })
+    .limit(25)
+    .toArray();
 
-  const revenue = await db.prepare(`
-    SELECT COALESCE(SUM(c.quantidade * c.preco_venda), 0) AS receita_total,
-           COALESCE(SUM(CASE WHEN c.data::date >= (CURRENT_DATE - INTERVAL '30 days') THEN c.quantidade * c.preco_venda ELSE 0 END), 0) AS receita_30d
-    FROM colheitas c WHERE c.user_id = ?
-  `).get(uid);
+  const lotesList = await lotesCol.find({ user_id: uid }).toArray();
+  const loteMap = Object.fromEntries(lotesList.map((l) => [l._id || l.id, l]));
+  const pendingWithLote = pending.map((p) => ({
+    ...p,
+    id: p._id || p.id,
+    lote_nome: loteMap[p.lote_id]?.nome || "",
+  }));
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  const gastos = await gastosCol.find({ user_id: uid }).toArray();
+  let custo_total = 0, custo_30d = 0;
+  for (const g of gastos) {
+    const custo = (g.quantidade || 0) * (g.valor_unitario || 0);
+    custo_total += custo;
+    if (g.data && g.data >= thirtyDaysAgo) custo_30d += custo;
+  }
+
+  const colheitas = await colheitasCol.find({ user_id: uid }).toArray();
+  let receita_total = 0, receita_30d = 0;
+  for (const c of colheitas) {
+    const receita = (c.quantidade || 0) * (c.preco_venda || 0);
+    receita_total += receita;
+    if (c.data && c.data >= thirtyDaysAgo) receita_30d += receita;
+  }
 
   res.json({
-    ativos: active,
+    ativos,
     lotes,
     colheitas: harvests,
-    custo_total: costs.custo_total,
-    custo_30d: costs.custo_30d,
-    receita_total: revenue.receita_total,
-    receita_30d: revenue.receita_30d,
-    lucro_total: revenue.receita_total - costs.custo_total,
-    lucro_30d: revenue.receita_30d - costs.custo_30d,
-    proximas_colheitas: sanitizeSnapshot({ proximas_colheitas: pending }).proximas_colheitas,
+    custo_total,
+    custo_30d,
+    receita_total,
+    receita_30d,
+    lucro_total: receita_total - custo_total,
+    lucro_30d: receita_30d - custo_30d,
+    proximas_colheitas: sanitizeSnapshot({ proximas_colheitas: pendingWithLote }).proximas_colheitas,
   });
 }));
 
 router.get("/performance", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
-  const rows = await db.prepare(`
-    SELECT p.cultura,
-           COUNT(DISTINCT p.id) AS plantios,
-           COALESCE(SUM(c.quantidade), 0) AS rendimento,
-           COALESCE(SUM(c.quantidade * c.preco_venda), 0) AS receita,
-           COALESCE((
-             SELECT SUM(g2.quantidade * g2.valor_unitario)
-             FROM gastos g2 WHERE g2.plantio_id = p.id
-           ), 0) AS custo
-    FROM plantios p
-    LEFT JOIN colheitas c ON c.plantio_id = p.id
-    WHERE p.user_id = ?
-    GROUP BY p.cultura
-    ORDER BY receita DESC
-  `).all(uid);
-  const perf = rows.map((r) => ({ ...r, custo: r.custo ?? 0, lucro: (r.receita ?? 0) - (r.custo ?? 0) }));
+
+  const plantiosCol = await col("plantios");
+  const colheitasCol = await col("colheitas");
+  const gastosCol = await col("gastos");
+
+  const [plantios, allColheitas, allGastos] = await Promise.all([
+    plantiosCol.find({ user_id: uid }).toArray(),
+    colheitasCol.find({ user_id: uid }).toArray(),
+    gastosCol.find({ user_id: uid }).toArray(),
+  ]);
+
+  const groups = {};
+  for (const p of plantios) {
+    const cult = p.cultura || "Outro";
+    if (!groups[cult]) groups[cult] = { cultura: cult, plantios: 0, rendimento: 0, receita: 0, custo: 0 };
+
+    groups[cult].plantios++;
+
+    const cols = allColheitas.filter((c) => c.plantio_id === p.id || c.plantio_id === (p._id?.toString()));
+    for (const c of cols) {
+      groups[cult].rendimento += c.quantidade || 0;
+      groups[cult].receita += (c.quantidade || 0) * (c.preco_venda || 0);
+    }
+
+    const gas = allGastos.filter((g) => g.plantio_id === p.id || g.plantio_id === (p._id?.toString()));
+    for (const g of gas) {
+      groups[cult].custo += (g.quantidade || 0) * (g.valor_unitario || 0);
+    }
+  }
+
+  const perf = Object.values(groups)
+    .map((r) => ({ ...r, custo: r.custo ?? 0, lucro: (r.receita ?? 0) - (r.custo ?? 0) }))
+    .sort((a, b) => b.receita - a.receita);
+
   res.json(sanitizeSnapshot({ perf }).perf);
 }));
 

@@ -1,11 +1,10 @@
 import { v4 as uuid } from "uuid";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { db, migrate } from "./db.js";
+import { col } from "./db.js";
 import { createDemoAccount } from "./routes/auth.js";
 
 export async function seed() {
-  await migrate();
   const uid = await createDemoAccount();
 
   const today = new Date();
@@ -13,42 +12,75 @@ export async function seed() {
   const addDays = (days) => iso(new Date(Date.now() + days * 864e5));
 
   const lotes = [
-    { id: uuid(), nome: "Talhão Norte", tipo: "talhao", area: 1200, localizacao: "Setor 1" },
-    { id: uuid(), nome: "Estufa Principal", tipo: "bancada", area: 340, localizacao: "Ao lado do galpão" },
-    { id: uuid(), nome: "Horta Sul", tipo: "talhao", area: 800, localizacao: "Margem do riacho" },
+    { _id: uuid(), id: uuid(), nome: "Talhão Norte", tipo: "talhao", area: 1200, localizacao: "Setor 1" },
+    { _id: uuid(), id: uuid(), nome: "Estufa Principal", tipo: "bancada", area: 340, localizacao: "Ao lado do galpão" },
+    { _id: uuid(), id: uuid(), nome: "Horta Sul", tipo: "talhao", area: 800, localizacao: "Margem do riacho" },
   ];
 
   const insumos = [
-    { id: uuid(), nome: "Semente de Alface", categoria: "semente", unidade: "pacote" },
-    { id: uuid(), nome: "Fertilizante NPK 10-10-10", categoria: "fertilizante", unidade: "kg" },
-    { id: uuid(), nome: "Adubo Orgânico", categoria: "adubo", unidade: "kg" },
-    { id: uuid(), nome: "Mudas de Tomate", categoria: "muda", unidade: "un" },
-    { id: uuid(), nome: "Defensivo Natural Neem", categoria: "defensivo", unidade: "L" },
+    { _id: uuid(), id: uuid(), nome: "Semente de Alface", categoria: "semente", unidade: "pacote" },
+    { _id: uuid(), id: uuid(), nome: "Fertilizante NPK 10-10-10", categoria: "fertilizante", unidade: "kg" },
+    { _id: uuid(), id: uuid(), nome: "Adubo Orgânico", categoria: "adubo", unidade: "kg" },
+    { _id: uuid(), id: uuid(), nome: "Mudas de Tomate", categoria: "muda", unidade: "un" },
+    { _id: uuid(), id: uuid(), nome: "Defensivo Natural Neem", categoria: "defensivo", unidade: "L" },
   ];
 
-  const seedLote = (l) =>
-    db.prepare("INSERT INTO lotes (id, user_id, nome, tipo, area, localizacao) VALUES (?, ?, ?, ?, ?, ?)").run(l.id, uid, l.nome, l.tipo, l.area, l.localizacao);
-  const seedInsumo = (i) =>
-    db.prepare("INSERT INTO insumos (id, user_id, nome, categoria, unidade) VALUES (?, ?, ?, ?, ?)").run(i.id, uid, i.nome, i.categoria, i.unidade);
+  const seedLote = async (l) => {
+    const c = await col("lotes");
+    await c.insertOne({ _id: l._id, id: l.id, user_id: uid, nome: l.nome, tipo: l.tipo, area: l.area, localizacao: l.localizacao });
+  };
+
+  const seedInsumo = async (i) => {
+    const c = await col("insumos");
+    await c.insertOne({ _id: i._id, id: i.id, user_id: uid, nome: i.nome, categoria: i.categoria, unidade: i.unidade });
+  };
 
   const plantio = async (lote, cultura, daysPlantedAgo, previstoEmDias, extra = {}) => {
     const id = uuid();
-    await db.prepare(
-      "INSERT INTO plantios (id, user_id, lote_id, cultura, cultivar, data_plantio, data_colheita_prevista, qtd_plantada, unidade, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(id, uid, lote.id, cultura, extra.cultivar || "Padrão", addDays(-daysPlantedAgo), extra.previsto ? iso(extra.previsto) : addDays(previstoEmDias), extra.qtd || 100, extra.unidade || "un", extra.status || "ativo");
+    const c = await col("plantios");
+    await c.insertOne({
+      _id: id,
+      id,
+      user_id: uid,
+      lote_id: lote.id,
+      cultura,
+      cultivar: extra.cultivar || "Padrão",
+      data_plantio: addDays(-daysPlantedAgo),
+      data_colheita_prevista: extra.previsto ? iso(extra.previsto) : addDays(previstoEmDias),
+      qtd_plantada: extra.qtd || 100,
+      unidade: extra.unidade || "un",
+      status: extra.status || "ativo",
+    });
     return id;
   };
 
   const gasto = async (pid, insumo, qtd, valor, daysAgo, descricao) => {
-    await db.prepare("INSERT INTO gastos (id, user_id, plantio_id, insumo_id, descricao, quantidade, valor_unitario, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-      uuid(), uid, pid, insumo.id, descricao, qtd, valor, addDays(-daysAgo)
-    );
+    const c = await col("gastos");
+    await c.insertOne({
+      _id: uuid(),
+      id: uuid(),
+      user_id: uid,
+      plantio_id: pid,
+      insumo_id: insumo.id,
+      descricao,
+      quantidade: qtd,
+      valor_unitario: valor,
+      data: addDays(-daysAgo),
+    });
   };
 
   const colheita = async (pid, qtd, preco, daysAgo, unidade = "kg") => {
-    await db.prepare("INSERT INTO colheitas (id, user_id, plantio_id, data, quantidade, unidade, preco_venda) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-      uuid(), uid, pid, addDays(-daysAgo), qtd, unidade, preco
-    );
+    const c = await col("colheitas");
+    await c.insertOne({
+      _id: uuid(),
+      id: uuid(),
+      user_id: uid,
+      plantio_id: pid,
+      data: addDays(-daysAgo),
+      quantidade: qtd,
+      unidade,
+      preco_venda: preco,
+    });
   };
 
   for (const l of lotes) await seedLote(l);

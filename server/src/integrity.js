@@ -9,25 +9,9 @@
  * O cliente envia señales como: DevTools aberto, userAgent suspeito, etc.
  */
 
-import { db } from "./db.js";
+import { col } from "./db.js";
 
-export const INTEGRITY_MIGRATION = `
-CREATE TABLE IF NOT EXISTS integrity_log (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  signal TEXT NOT NULL,
-  severity TEXT NOT NULL DEFAULT 'low',
-  detail TEXT,
-  created_at TEXT NOT NULL DEFAULT now()::text
-);
-
-CREATE TABLE IF NOT EXISTS integrity_score (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  score INTEGER NOT NULL DEFAULT 100,
-  blocked INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL DEFAULT now()::text
-);
-`;
+export const INTEGRITY_MIGRATION = "";
 
 /**
  * Processa um relatório de integridade do cliente.
@@ -39,32 +23,40 @@ CREATE TABLE IF NOT EXISTS integrity_score (
  * @returns {{ score: number, blocked: boolean }}
  */
 export async function reportIntegrity(userId, signal, severity = "low", detail = null) {
-  // Pontuação por severidade
   const DEDUCTIONS = { low: 5, medium: 15, high: 30, critical: 50 };
   const deduction = DEDUCTIONS[severity] || 5;
 
   // Log do evento
-  await db.prepare(
-    "INSERT INTO integrity_log (user_id, signal, severity, detail) VALUES (?, ?, ?, ?)"
-  ).run(userId, signal, severity, detail);
+  const logCol = await col("integrity_log");
+  await logCol.insertOne({
+    user_id: userId,
+    signal,
+    severity,
+    detail,
+    created_at: new Date().toISOString(),
+  });
 
   // Atualiza score
-  const current = await db.prepare("SELECT score, blocked FROM integrity_score WHERE user_id = ?").get(userId);
+  const scoreCol = await col("integrity_score");
+  const current = await scoreCol.findOne({ user_id: userId });
   if (current?.blocked) {
     return { score: current.score, blocked: true };
   }
 
   const newScore = Math.max(0, (current?.score || 100) - deduction);
-  const blocked = newScore <= 20; // Bloqueia abaixo de 20
+  const blocked = newScore <= 20;
 
-  await db.prepare(
-    `INSERT INTO integrity_score (user_id, score, blocked, updated_at)
-     VALUES (?, ?, ?, now()::text)
-     ON CONFLICT (user_id) DO UPDATE SET
-       score = LEAST(integrity_score.score, ${newScore}),
-       blocked = ${blocked ? 1 : 0},
-       updated_at = now()::text`
-  ).run(userId, newScore, blocked ? 1 : 0);
+  await scoreCol.updateOne(
+    { user_id: userId },
+    {
+      $set: {
+        score: current ? Math.min(current.score, newScore) : newScore,
+        blocked: blocked,
+        updated_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true }
+  );
 
   if (blocked) {
     console.warn(`[integrity] USUÁRIO ${userId} BLOQUEADO — score ${newScore} (signal: ${signal})`);
@@ -77,7 +69,8 @@ export async function reportIntegrity(userId, signal, severity = "low", detail =
  * Verifica se o usuário está bloqueado.
  */
 export async function isUserBlocked(userId) {
-  const row = await db.prepare("SELECT blocked FROM integrity_score WHERE user_id = ?").get(userId);
+  const scoreCol = await col("integrity_score");
+  const row = await scoreCol.findOne({ user_id: userId });
   return !!row?.blocked;
 }
 
@@ -85,6 +78,8 @@ export async function isUserBlocked(userId) {
  * Reseta score de integridade (ação administrativa).
  */
 export async function resetIntegrityScore(userId) {
-  await db.prepare("DELETE FROM integrity_score WHERE user_id = ?").run(userId);
-  await db.prepare("DELETE FROM integrity_log WHERE user_id = ?").run(userId);
+  const scoreCol = await col("integrity_score");
+  await scoreCol.deleteOne({ user_id: userId });
+  const logCol = await col("integrity_log");
+  await logCol.deleteMany({ user_id: userId });
 }

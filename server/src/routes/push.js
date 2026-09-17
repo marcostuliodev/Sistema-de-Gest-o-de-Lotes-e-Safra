@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { v4 as uuid } from "uuid";
-import { db } from "../db.js";
+import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { getVapidPublic, sendPush } from "../push.js";
@@ -24,11 +24,16 @@ router.post(
     if (!endpoint || !keys?.p256dh || !keys?.auth) {
       return res.status(400).json({ error: "Inscrição inválida" });
     }
-    // Substitui qualquer inscrição existente deste endpoint para este usuário.
-    await db.prepare("DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?").run(req.user.uid, endpoint);
-    await db
-      .prepare("INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, now()::text)")
-      .run(uuid(), req.user.uid, endpoint, keys.p256dh, keys.auth);
+    const subsCol = await col("push_subscriptions");
+    await subsCol.deleteMany({ user_id: req.user.uid, endpoint });
+    await subsCol.insertOne({
+      _id: uuid(),
+      user_id: req.user.uid,
+      endpoint,
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      created_at: new Date().toISOString(),
+    });
     res.json({ ok: true });
   })
 );
@@ -38,17 +43,20 @@ router.post(
   asyncHandler(async (req, res) => {
     const { endpoint } = req.body || {};
     if (!endpoint) return res.status(400).json({ error: "endpoint obrigatório" });
-    await db.prepare("DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?").run(req.user.uid, endpoint);
+    const subsCol = await col("push_subscriptions");
+    await subsCol.deleteMany({ user_id: req.user.uid, endpoint });
     res.json({ ok: true });
   })
 );
 
-// Envia uma notificação de teste para confirmar que o push funciona.
 router.post(
   "/test",
   asyncHandler(async (req, res) => {
-    const row = await db.prepare("SELECT lat, lon, tz FROM users WHERE id = ?").get(req.user.uid);
-    const subs = await db.prepare("SELECT * FROM push_subscriptions WHERE user_id = ?").all(req.user.uid);
+    const usersCol = await col("users");
+    const subsCol = await col("push_subscriptions");
+
+    const row = await usersCol.findOne({ _id: req.user.uid });
+    const subs = await subsCol.find({ user_id: req.user.uid }).toArray();
     if (subs.length === 0) return res.status(400).json({ error: "Nenhuma inscrição de push" });
 
     let weather = null;
@@ -67,7 +75,7 @@ router.post(
     let sent = 0;
     for (const s of subs) {
       const ok = await sendPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload);
-      if (!ok) await db.prepare("DELETE FROM push_subscriptions WHERE id = ?").run(s.id);
+      if (!ok) await subsCol.deleteOne({ _id: s._id || s.id });
       else sent++;
     }
     res.json({ ok: true, sent });
