@@ -50,7 +50,7 @@ export function setAuthCookie(res, token) {
   const attrs = [
     `agrolote_token=${token}`,
     "HttpOnly",
-    "SameSite=Strict",
+    "SameSite=Lax",
     "Path=/",
     `Max-Age=${TOKEN_MAX_AGE}`,
   ];
@@ -59,7 +59,7 @@ export function setAuthCookie(res, token) {
 }
 
 export function clearAuthCookie(res) {
-  const attrs = ["agrolote_token=", "HttpOnly", "SameSite=Strict", "Path=/", "Max-Age=0"];
+  const attrs = ["agrolote_token=", "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"];
   if (process.env.NODE_ENV === "production") attrs.push("Secure");
   res.setHeader("Set-Cookie", attrs.join("; "));
 }

@@ -70,10 +70,24 @@ export default function Login() {
 
           {mode === "login" && (
             <button
-              onClick={() => { setEmail("demo@agrolote.app"); setPassword("demo123"); }}
+              type="button"
+              onClick={async () => {
+                setEmail("demo@agrolote.app");
+                setPassword("demo123");
+                setBusy(true);
+                setError("");
+                try {
+                  await login("demo@agrolote.app", "demo123");
+                } catch (err) {
+                  setError((err as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              disabled={busy}
               className="mt-4 w-full rounded-lg border border-dashed border-green-300 bg-green-50 py-2 text-xs font-medium text-green-700 hover:bg-green-100"
             >
-              Usar conta demo (demo@agrolote.app)
+              {busy ? "Aguarde..." : "Usar conta demo (demo@agrolote.app)"}
             </button>
           )}
         </div>

@@ -4,3 +4,4 @@ client/dist/
 *.log
 .env
 .vercel/
+.jsonc

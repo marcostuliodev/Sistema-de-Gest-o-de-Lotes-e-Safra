@@ -92,9 +92,9 @@ let bootstrapped = false;
 
 async function bootstrap() {
   if (bootstrapped) return;
-  bootstrapped = true;
 
   await migrate();
+  bootstrapped = true;
   await logCronKey().catch(() => {});
 
   if (process.env.SEED_DEMO !== "false") {

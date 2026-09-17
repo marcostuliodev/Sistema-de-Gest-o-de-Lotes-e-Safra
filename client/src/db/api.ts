@@ -31,7 +31,7 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
   // Autenticação via cookie HttpOnly (enviado automaticamente pelo navegador).
   const res = await fetch(path, { ...options, headers, credentials: "include" });
-  if (res.status === 401 && !path.includes("/auth/login")) {
+  if (res.status === 401 && !path.includes("/auth/login") && !path.includes("/api/sync")) {
     setSession(null);
     window.dispatchEvent(new CustomEvent("agrolote:logout"));
   }

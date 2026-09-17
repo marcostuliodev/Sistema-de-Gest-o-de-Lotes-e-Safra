@@ -43,7 +43,7 @@ router.post("/login", asyncHandler(async (req, res) => {
 
 export async function createDemoAccount() {
   await migrate();
-  const exists = await db.prepare("SELECT id FROM users WHERE email = 'demo@agrolote.app'").get();
+  const exists = await db.prepare("SELECT id FROM users WHERE lower(email) = lower('demo@agrolote.app')").get();
   if (exists) return exists.id;
   const hash = await bcrypt.hash("demo123", 10);
   const info = await db.prepare("INSERT INTO users (name, email, password_hash) VALUES ('Produtor Demo', 'demo@agrolote.app', ?) RETURNING id").run(hash);
