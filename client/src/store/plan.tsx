@@ -121,7 +121,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     runIntegrityCheck().then((result) => {
       if (result.blocked) setBlocked(true);
     });
-    startIntegrityMonitoring();
+    const stopIntegrity = startIntegrityMonitoring();
 
     // Heartbeat periódico (online)
     const heartbeatInterval = setInterval(() => {
@@ -135,7 +135,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     // Busca licença
     fetchLicense();
 
-    return () => clearInterval(heartbeatInterval);
+    return () => {
+      clearInterval(heartbeatInterval);
+      clockResult.cleanup?.();
+      stopIntegrity();
+    };
   }, [session, fetchLicense]);
 
   const startTrial = useCallback(async (planId: string) => {

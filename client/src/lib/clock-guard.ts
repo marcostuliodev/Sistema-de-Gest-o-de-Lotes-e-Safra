@@ -17,6 +17,7 @@ export interface ClockCheckResult {
   reason?: "clock_rolled_back" | "clock_ahead" | "server_compromised";
   driftMs?: number;
   serverTime?: string;
+  cleanup?: () => void;
 }
 
 /**
@@ -147,5 +148,5 @@ export function initClockGuard(): ClockCheckResult {
     }, 5 * 60 * 1000);
   }
 
-  return { ...result, _cleanup: () => { if (intervalId != null) clearInterval(intervalId); } };
+  return { ...result, cleanup: () => { if (intervalId != null) clearInterval(intervalId); } };
 }
