@@ -15,6 +15,7 @@ import weatherRouter from "./routes/weather.js";
 import pushRouter from "./routes/push.js";
 import cronRouter from "./routes/cron.js";
 import upgradeRouter from "./routes/upgrade.js";
+import photosRouter from "./routes/photos.js";
 import { startScheduler, logCronKey } from "./scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -153,6 +154,7 @@ app.use("/api/weather", weatherRouter);
 app.use("/api/push", pushRouter);
 app.use("/api/cron", cronRouter);
 app.use("/api/upgrade", upgradeRouter);
+app.use("/api/photos", photosRouter);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Static files (apenas em ambientes que servem SPA — NÃO no Vercel)

@@ -1,4 +1,4 @@
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient, ObjectId, GridFSBucket } from "mongodb";
 
 const MONGO_URL = process.env.MONGODB_URI || process.env.DATABASE_URL;
 const DB_NAME = process.env.MONGODB_DB || "agrolote";
@@ -23,7 +23,7 @@ async function getDb() {
 }
 
 export async function closeDb() {
-  if (client) { await client.close(); client = null; _db = null; }
+  if (client) { await client.close(); client = null; _db = null; _gridFSBucket = null; }
 }
 
 // ── Collections ──────────────────────────────────────────────────────
@@ -31,6 +31,16 @@ export async function closeDb() {
 export async function col(name) {
   const db = await getDb();
   return db.collection(name);
+}
+
+let _gridFSBucket = null;
+
+export function getGridFSBucket() {
+  if (_gridFSBucket) return _gridFSBucket;
+  // _db must be initialized before calling this
+  if (!_db) throw new Error("GridFSBucket: database not initialized");
+  _gridFSBucket = new GridFSBucket(_db);
+  return _gridFSBucket;
 }
 
 // ── Query helpers (substituem db.prepare do pg) ─────────────────────
@@ -418,6 +428,7 @@ export async function migrate() {
     { name: "integrity_log", indexes: [{ key: { user_id: 1 } }] },
     { name: "integrity_score", indexes: [{ key: { user_id: 1 }, unique: true }] },
     { name: "outbox", indexes: [{ key: { created_at: 1 } }] },
+    { name: "photos_metadata", indexes: [{ key: { user_id: 1 } }, { key: { plantio_id: 1 } }, { key: { lote_id: 1 } }] },
   ];
 
   for (const { name, indexes } of collections) {

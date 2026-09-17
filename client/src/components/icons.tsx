@@ -20,3 +20,5 @@ export const Box = (p: SVGProps<SVGSVGElement>) => base(p, "M21 8a2 2 0 0 0-1-1.
 export const Logout = (p: SVGProps<SVGSVGElement>) => base(p, "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9");
 export const Warning = (p: SVGProps<SVGSVGElement>) => base(p, "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01");
 export const WifiOff = (p: SVGProps<SVGSVGElement>) => base(p, "M2 8.82a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16.1a5 5 0 0 1 7 0M1 1l22 22M12 20h.01");
+export const Camera = (p: SVGProps<SVGSVGElement>) => base(p, "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z");
+export const Image = (p: SVGProps<SVGSVGElement>) => base(p, "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z");
