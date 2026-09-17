@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "client/dist",
-  "installCommand": "npm install && npm install --prefix server && npm install --include=dev --prefix client",
+  "installCommand": "npm install --prefix api && npm install --prefix server && npm install --include=dev --prefix client",
   "framework": null,
   "functions": {
     "api/index.js": {
