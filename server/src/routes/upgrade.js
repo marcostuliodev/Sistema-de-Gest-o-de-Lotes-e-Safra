@@ -25,7 +25,7 @@ const router = Router();
 const IS_PROD = process.env.NODE_ENV === "production";
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
-const APP_URL = process.env.APP_URL || (IS_PROD ? "https://agrolote.onrender.com" : "http://localhost:5173");
+const APP_URL = process.env.APP_URL || (IS_PROD ? "https://agrolote.marcostuliogc.com.br" : "http://localhost:5173");
 
 // ═══════════════════════════════════════════════════════════════════════
 // GET /api/upgrade/plans — Lista planos públicos (não requer auth)
@@ -53,58 +53,63 @@ router.get("/public-key", (_req, res) => {
 // POST /api/upgrade/checkout — Cria sessão Stripe Checkout
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
-  if (!STRIPE_SECRET) {
-    return res.status(503).json({ error: "Stripe não configurado. Defina STRIPE_SECRET_KEY." });
-  }
+  try {
+    if (!STRIPE_SECRET) {
+      return res.status(503).json({ error: "Stripe nao configurado. Defina STRIPE_SECRET_KEY." });
+    }
 
-  const { plan, billing = "monthly" } = req.body || {};
-  if (!isValidPlan(plan) || plan === "free") {
-    return res.status(400).json({ error: "Plano inválido" });
-  }
-  if (billing !== "monthly" && billing !== "annual") {
-    return res.status(400).json({ error: "Ciclo de cobrança inválido" });
-  }
+    const { plan, billing = "monthly" } = req.body || {};
+    if (!isValidPlan(plan) || plan === "free") {
+      return res.status(400).json({ error: "Plano invalido" });
+    }
+    if (billing !== "monthly" && billing !== "annual") {
+      return res.status(400).json({ error: "Ciclo de cobranca invalido" });
+    }
 
-  const priceKey = `${plan}_${billing}`;
-  const priceId = STRIPE_PRICE_IDS[priceKey];
-  if (!priceId) {
-    return res.status(400).json({ error: `Price ID não configurado para ${priceKey}. Crie o produto/price no Stripe e defina a env var.` });
-  }
+    const priceKey = `${plan}_${billing}`;
+    const priceId = STRIPE_PRICE_IDS[priceKey];
+    if (!priceId) {
+      return res.status(400).json({ error: `Price ID nao configurado para ${priceKey}. Crie o produto/price no Stripe e defina a env var.` });
+    }
 
-  // Busca ou cria customer
-  const subs = await col("subscriptions");
-  const sub = await subs.findOne({ user_id: req.user.uid });
-  let customerId = sub?.stripe_customer_id;
+    // Busca ou cria customer
+    const subs = await col("subscriptions");
+    const sub = await subs.findOne({ user_id: req.user.uid });
+    let customerId = sub?.stripe_customer_id;
 
-  if (!customerId) {
+    if (!customerId) {
+      const stripe = (await import("stripe")).default(STRIPE_SECRET);
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        metadata: { userId: String(req.user.uid) },
+      });
+      customerId = customer.id;
+      await subs.updateOne(
+        { user_id: req.user.uid },
+        { $set: { stripe_customer_id: customerId } },
+        { upsert: true }
+      );
+    }
+
     const stripe = (await import("stripe")).default(STRIPE_SECRET);
-    const customer = await stripe.customers.create({
-      email: req.user.email,
-      metadata: { userId: String(req.user.uid) },
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${APP_URL}/upgrade?success=1`,
+      cancel_url: `${APP_URL}/upgrade?cancelled=1`,
+      metadata: { userId: String(req.user.uid), plan, billing },
+      subscription_data: {
+        metadata: { userId: String(req.user.uid), plan },
+      },
     });
-    customerId = customer.id;
-    await subs.updateOne(
-      { user_id: req.user.uid },
-      { $set: { stripe_customer_id: customerId } },
-      { upsert: true }
-    );
+
+    res.json({ url: session.url, sessionId: session.id });
+  } catch (e) {
+    console.error("[checkout] Erro:", e.message);
+    res.status(500).json({ error: e.message || "Erro ao criar checkout" });
   }
-
-  const stripe = (await import("stripe")).default(STRIPE_SECRET);
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: "subscription",
-    payment_method_types: ["card"],
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${APP_URL}/upgrade?success=1`,
-    cancel_url: `${APP_URL}/upgrade?cancelled=1`,
-    metadata: { userId: String(req.user.uid), plan, billing },
-    subscription_data: {
-      metadata: { userId: String(req.user.uid), plan },
-    },
-  });
-
-  res.json({ url: session.url, sessionId: session.id });
 }));
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -176,96 +181,119 @@ function expressRawBody() {
 // POST /api/upgrade/trial — Inicia trial de um plano
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
-  const { plan } = req.body || {};
-  if (!isValidPlan(plan) || plan === "free") {
-    return res.status(400).json({ error: "Plano inválido" });
-  }
-
-  const subs = await col("subscriptions");
-  const existing = await subs.findOne({ user_id: req.user.uid });
-
-  // Já tem trial ou assinatura ativa
-  if (existing && existing.status === "active" && existing.plan !== "free") {
-    return res.status(400).json({ error: "Você já possui um plano ativo." });
-  }
-  if (existing && existing.status === "trial" && existing.trial_started_at) {
-    const started = new Date(existing.trial_started_at);
-    const daysSince = (Date.now() - started.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSince < TRIAL_DAYS && existing.trial_plan === plan) {
-      // Já está em trial deste plano — retorna licença atual
-      const license = generateLicense(req.user.uid, plan, null, new Date(started.getTime() + TRIAL_DAYS * 86400000));
-      return res.json({ plan, trialEnd: new Date(started.getTime() + TRIAL_DAYS * 86400000).toISOString(), license });
+  try {
+    const { plan } = req.body || {};
+    if (!isValidPlan(plan) || plan === "free") {
+      return res.status(400).json({ error: "Plano invalido" });
     }
-    if (daysSince < TRIAL_DAYS) {
-      return res.status(400).json({ error: `Você já está testando o plano ${PLANS[existing.trial_plan]?.label || existing.trial_plan}.` });
+
+    const subs = await col("subscriptions");
+    const existing = await subs.findOne({ user_id: req.user.uid });
+
+    // Ja tem trial ou assinatura ativa
+    if (existing && existing.status === "active" && existing.plan !== "free") {
+      return res.status(400).json({ error: "Voce ja possui um plano ativo." });
     }
-  }
+    if (existing && existing.status === "trial" && existing.trial_started_at) {
+      const started = new Date(existing.trial_started_at);
+      const daysSince = (Date.now() - started.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince < TRIAL_DAYS && existing.trial_plan === plan) {
+        const trialEnd = new Date(started.getTime() + TRIAL_DAYS * 86400000);
+        let license = null;
+        try { license = generateLicense(req.user.uid, plan, null, trialEnd); } catch (e) { console.error("[trial] generateLicense error:", e.message); }
+        return res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+      }
+      if (daysSince < TRIAL_DAYS) {
+        return res.status(400).json({ error: "Voce ja esta testando o plano " + (PLANS[existing.trial_plan]?.label || existing.trial_plan) + "." });
+      }
+    }
 
-  const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000);
+    const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000);
 
-  await subs.updateOne(
-    { user_id: req.user.uid },
-    {
-      $set: {
-        plan: "free",
-        status: "trial",
-        trial_started_at: new Date().toISOString(),
-        trial_plan: plan,
-        current_period_start: new Date().toISOString(),
-        current_period_end: trialEnd.toISOString(),
-        updated_at: new Date().toISOString(),
+    await subs.updateOne(
+      { user_id: req.user.uid },
+      {
+        $set: {
+          plan: "free",
+          status: "trial",
+          trial_started_at: new Date().toISOString(),
+          trial_plan: plan,
+          current_period_start: new Date().toISOString(),
+          current_period_end: trialEnd.toISOString(),
+          updated_at: new Date().toISOString(),
+        },
       },
-    },
-    { upsert: true }
-  );
+      { upsert: true }
+    );
 
-  const license = generateLicense(req.user.uid, plan, null, trialEnd);
-  res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+    let license = null;
+    try {
+      license = generateLicense(req.user.uid, plan, null, trialEnd);
+    } catch (e) {
+      console.error("[trial] generateLicense error:", e.message);
+    }
+
+    res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+  } catch (e) {
+    console.error("[trial] Erro:", e.message, e.stack);
+    res.status(500).json({ error: e.message || "Erro interno no trial" });
+  }
 }));
 
 // ═══════════════════════════════════════════════════════════════════════
 // GET /api/upgrade/license — Retorna licença assinada do usuário
 // ═══════════════════════════════════════════════════════════════════════
 router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
-  const subs = await col("subscriptions");
-  const sub = await subs.findOne({ user_id: req.user.uid });
+  try {
+    const subs = await col("subscriptions");
+    const sub = await subs.findOne({ user_id: req.user.uid });
 
-  if (!sub || (sub.plan === "free" && sub.status !== "trial")) {
-    // Sem assinatura — retorna plano free sem licença assinada
-    return res.json({ plan: "free", features: getPlanFeatures("free"), license: null });
-  }
-
-  let activePlan = sub.plan;
-  let license = null;
-
-  if (sub.status === "trial" && sub.trial_started_at) {
-    const trialEnd = new Date(sub.trial_started_at);
-    trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
-
-    if (new Date() > trialEnd) {
-      // Trial expirou — volta para free
-      await subs.updateOne(
-        { user_id: req.user.uid },
-        { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
-      );
-      activePlan = "free";
-    } else {
-      activePlan = sub.trial_plan;
-      license = generateLicense(req.user.uid, activePlan, null, trialEnd);
+    if (!sub || (sub.plan === "free" && sub.status !== "trial")) {
+      return res.json({ plan: "free", features: getPlanFeatures("free"), license: null, status: "free" });
     }
-  } else if (sub.status === "active" && sub.plan !== "free") {
-    license = generateLicense(req.user.uid, activePlan, sub.stripe_subscription_id);
-  }
 
-  res.json({
-    plan: activePlan,
-    features: getPlanFeatures(activePlan),
-    license,
-    status: sub.status,
-    trialEnd: sub.status === "trial" && sub.trial_started_at
-      ? new Date(new Date(sub.trial_started_at).getTime() + TRIAL_DAYS * 86400000).toISOString()
-      : null,
-  });
+    let activePlan = sub.plan;
+    let license = null;
+
+    if (sub.status === "trial" && sub.trial_started_at) {
+      const trialEnd = new Date(sub.trial_started_at);
+      trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+
+      if (new Date() > trialEnd) {
+        await subs.updateOne(
+          { user_id: req.user.uid },
+          { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
+        );
+        activePlan = "free";
+      } else {
+        activePlan = sub.trial_plan;
+        try {
+          license = generateLicense(req.user.uid, activePlan, null, trialEnd);
+        } catch (e) {
+          console.error("[license] generateLicense error:", e.message);
+        }
+      }
+    } else if (sub.status === "active" && sub.plan !== "free") {
+      try {
+        license = generateLicense(req.user.uid, activePlan, sub.stripe_subscription_id);
+      } catch (e) {
+        console.error("[license] generateLicense error:", e.message);
+      }
+    }
+
+    res.json({
+      plan: activePlan,
+      features: getPlanFeatures(activePlan),
+      license,
+      status: sub.status,
+      trialEnd: sub.status === "trial" && sub.trial_started_at
+        ? new Date(new Date(sub.trial_started_at).getTime() + TRIAL_DAYS * 86400000).toISOString()
+        : null,
+    });
+  } catch (e) {
+    console.error("[license] Erro:", e.message);
+    res.status(500).json({ error: e.message });
+  }
 }));
 
 // ═══════════════════════════════════════════════════════════════════════

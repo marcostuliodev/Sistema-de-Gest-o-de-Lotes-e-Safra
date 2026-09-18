@@ -173,8 +173,9 @@ if (!IS_VERCEL) {
 // Error handler
 // ═══════════════════════════════════════════════════════════════════════
 app.use((err, _req, res, _next) => {
-  console.error("Erro:", err);
-  res.status(500).json({ error: "Erro interno" });
+  console.error("Erro:", err?.message || err);
+  console.error("Stack:", err?.stack);
+  res.status(500).json({ error: IS_PROD ? (err?.message || "Erro interno") : "Erro interno" });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
