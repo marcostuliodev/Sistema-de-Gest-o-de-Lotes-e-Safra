@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { getSession, login, register, setSession, logout, type AuthSession } from "../db/api";
+import { getSession, login, register, setSession, logout, resendVerification, type AuthSession } from "../db/api";
 import { db } from "../db/db";
 import { pullServer } from "../db/sync";
 
@@ -19,8 +19,9 @@ interface AuthCtx {
   pendingSync: number;
   online: boolean;
   login: (email: string, pass: string) => Promise<void>;
-  register: (name: string, email: string, pass: string) => Promise<void>;
+  register: (name: string, email: string, pass: string) => Promise<AuthSession>;
   logout: () => void;
+  resendVerification: (email: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
@@ -60,11 +61,12 @@ const doLogin = async (email: string, pass: string) => {
     await prepareFreshStore(s.user.id);
     await pullServer().catch(() => undefined);
   };
-  const doRegister = async (name: string, email: string, pass: string) => {
+  const doRegister = async (name: string, email: string, pass: string): Promise<AuthSession> => {
     const s = await register(name, email, pass);
     setSessionState(s);
     await prepareFreshStore(s.user.id);
     await pullServer().catch(() => undefined);
+    return s;
   };
   const doLogout = () => {
     void logout();
@@ -73,8 +75,12 @@ const doLogin = async (email: string, pass: string) => {
     void db.outbox.clear();
   };
 
+  const doResendVerification = async (email: string) => {
+    return resendVerification(email);
+  };
+
   return (
-    <Ctx.Provider value={{ session, pendingSync, online, login: doLogin, register: doRegister, logout: doLogout }}>
+    <Ctx.Provider value={{ session, pendingSync, online, login: doLogin, register: doRegister, logout: doLogout, resendVerification: doResendVerification }}>
       {children}
     </Ctx.Provider>
   );

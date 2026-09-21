@@ -2,7 +2,7 @@ import type { DashboardData, EntityName, PerformanceRow, Snapshot, SyncOp } from
 
 export interface AuthSession {
   token: string;
-  user: { id: number; name: string; email: string };
+  user: { id: number; name: string; email: string; email_verified: boolean };
 }
 
 const USER_KEY = "agrolote_user";
@@ -66,6 +66,28 @@ export async function register(name: string, email: string, password: string): P
 
 export async function logout() {
   await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
+}
+
+export async function resendVerification(email: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch("/api/auth/resend-verification", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+    credentials: "include",
+  });
+  return res.json();
+}
+
+export async function verifyEmail(token: string): Promise<{ ok: boolean; message: string; error?: string }> {
+  const res = await fetch("/api/auth/verify-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Erro ao verificar e-mail");
+  return data;
 }
 
 export async function pushSync(ops: SyncOp[]): Promise<{ snapshot: Snapshot; serverTime: string } | null> {

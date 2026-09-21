@@ -4,6 +4,7 @@ import { useAuth } from "./store/auth";
 import { PlanProvider } from "./store/plan";
 import Layout from "./pages/layout";
 import Login from "./pages/login";
+import VerifyEmail from "./pages/verify-email";
 
 const Dashboard = lazy(() => import("./pages/dashboard"));
 const Lotes = lazy(() => import("./pages/lotes"));
@@ -31,6 +32,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route
           path="/forgot-password"
           element={
@@ -55,6 +57,7 @@ export default function App() {
   return (
     <PlanProvider>
       <Routes>
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route element={<Layout />}>
           <Route
             path="/"

@@ -140,4 +140,101 @@ router.get("/verify-reset-token/:token", asyncHandler(async (req, res) => {
   res.json({ valid: true });
 }));
 
+// POST /api/auth/verify-email
+router.post("/verify-email", asyncHandler(async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: "Token obrigatório" });
+
+  const verifications = await col("email_verifications");
+  const record = await verifications.findOne({ token });
+  if (!record) return res.status(400).json({ error: "Token inválido" });
+
+  if (new Date(record.expires_at) < new Date()) {
+    await verifications.deleteOne({ _id: record._id });
+    return res.status(400).json({ error: "Token expirado. Solicite uma nova confirmação." });
+  }
+
+  const users = await col("users");
+  await users.updateOne(
+    { id: record.user_id },
+    { $set: { email_verified: true, verified_at: new Date().toISOString() } }
+  );
+  await verifications.deleteOne({ _id: record._id });
+
+  res.json({ ok: true, message: "Email confirmado com sucesso!" });
+}));
+
+// POST /api/auth/resend-verification
+router.post("/resend-verification", asyncHandler(async (req, res) => {
+  const { email } = req.body || {};
+  const parsed = emailSchema.safeParse(email);
+  if (!parsed.success) {
+    return res.json({ ok: true, message: "Se o e-mail existir e não estiver confirmado, você receberá um novo link." });
+  }
+
+  const users = await col("users");
+  const user = await users.findOne({ email: { $regex: new RegExp("^" + parsed.data + "$", "i") } });
+  if (!user || user.email_verified) {
+    return res.json({ ok: true, message: "Se o e-mail existir e não estiver confirmado, você receberá um novo link." });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const verifications = await col("email_verifications");
+  await verifications.deleteMany({ user_id: user.id || user._id });
+  await verifications.insertOne({
+    user_id: user.id || user._id,
+    token,
+    expires_at: expires.toISOString(),
+    created_at: new Date().toISOString(),
+  });
+
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const APP_URL = process.env.APP_URL || "https://agrolote.marcostuliogc.com.br";
+  const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
+
+  if (RESEND_API_KEY) {
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(RESEND_API_KEY);
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Agrolote <noreply@agrolote.marcostuliogc.com.br>",
+        to: user.email,
+        subject: "Confirme seu e-mail - Agrolote",
+        html: `
+          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+            <div style="text-align: center; margin-bottom: 32px;">
+              <div style="display: inline-block; background: #16a34a; color: white; width: 48px; height: 48px; border-radius: 12px; line-height: 48px; font-size: 24px;">🌱</div>
+              <h1 style="color: #1c1917; margin-top: 16px;">Confirme seu e-mail</h1>
+            </div>
+            <p style="color: #57534e; font-size: 14px;">
+              Olá <strong>${user.name || user.email}</strong>,
+            </p>
+            <p style="color: #57534e; font-size: 14px;">
+              Clique no botão abaixo para confirmar seu e-mail e ativar sua conta no Agrolote:
+            </p>
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="${verifyUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                Confirmar e-mail
+              </a>
+            </div>
+            <p style="color: #a8a29e; font-size: 12px; text-align: center;">
+              Este link expira em 24 horas. Se você não criou uma conta no Agrolote, ignore este e-mail.
+            </p>
+          </div>
+        `,
+      });
+      console.log(`[verify-email] Email enviado para ${user.email}`);
+    } catch (e) {
+      console.error("[verify-email] Erro ao enviar:", e.message);
+      console.log(`[verify-email] URL: ${verifyUrl}`);
+    }
+  } else {
+    console.log(`[verify-email] URL: ${verifyUrl}`);
+  }
+
+  res.json({ ok: true, message: "Se o e-mail existir e não estiver confirmado, você receberá um novo link." });
+}));
+
 export default router;

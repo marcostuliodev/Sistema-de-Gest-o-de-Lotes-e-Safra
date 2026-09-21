@@ -44,16 +44,19 @@ function Cloud({}: {}) {
 }
 
 export default function Layout() {
-  const { session, logout, pendingSync, online } = useAuth();
+  const { session, logout, pendingSync, online, resendVerification } = useAuth();
   const { plan, trialRemaining, status, blocked, clockWarning } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
   if (!session) {
     return <Navigate to="/login" replace />;
   }
 
   const synced = pendingSync === 0 && online;
   const planBadge = PLAN_BADGES[plan] || PLAN_BADGES.free;
+  const emailVerified = session.user.email_verified !== false;
 
   // Bloqueio de integridade
   if (blocked) {
@@ -73,12 +76,42 @@ export default function Layout() {
     );
   }
 
+  async function handleResendVerification() {
+    if (!session) return;
+    setResendBusy(true);
+    setResendMsg("");
+    try {
+      const data = await resendVerification(session.user.email);
+      setResendMsg(data.message);
+    } catch {
+      setResendMsg("Erro ao reenviar.");
+    } finally {
+      setResendBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
       {/* Clock warning banner */}
       {clockWarning && (
         <div className="bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
           ⚠️ Possível manipulação de relógio detectada. Verifique a data/hora do seu dispositivo.
+        </div>
+      )}
+
+      {/* Email verification banner */}
+      {!emailVerified && (
+        <div className="bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
+          Seu e-mail não foi confirmado. Verifique sua caixa de entrada ou{" "}
+          {resendBusy ? (
+            <span>Reenviando...</span>
+          ) : resendMsg ? (
+            <span>{resendMsg}</span>
+          ) : (
+            <button onClick={() => void handleResendVerification()} className="underline hover:text-amber-600">
+              Reenviar
+            </button>
+          )}
         </div>
       )}
 
