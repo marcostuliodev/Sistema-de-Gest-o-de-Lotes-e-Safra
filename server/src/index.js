@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { col, migrate } from "./db.js";
 import { createDemoAccount } from "./routes/auth.js";
 import authRouter from "./routes/auth.js";
+import passwordResetRouter from "./routes/password-reset.js";
 import crudRouter from "./routes/crud.js";
 import reportsRouter from "./routes/reports.js";
 import syncRouter from "./routes/sync.js";
@@ -86,6 +87,8 @@ const authLimiter = rateLimit({
 
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api/auth/reset-password", authLimiter);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Bootstrap (roda uma vez — cold start no Vercel, startup no Render/VPS)
@@ -143,6 +146,7 @@ app.get("/api/health", async (_req, res) => {
   res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString(), hasDb, dbOk });
 });
 
+app.use("/api/auth", passwordResetRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/lotes", crudRouter("lotes"));
 app.use("/api/plantios", crudRouter("plantios"));

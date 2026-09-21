@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { Button, Field, TextInput, Form } from "../components/ui";
 import { Leaf, WifiOff } from "../components/icons";
@@ -62,6 +63,13 @@ export default function Login() {
             <Field label="Senha" required hint={mode === "register" ? "Mínimo 6 caracteres" : undefined}>
               <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
             </Field>
+            {mode === "login" && (
+              <div className="flex justify-end">
+                <Link to="/forgot-password" className="text-xs font-medium text-green-700 hover:underline">
+                  Esqueceu a senha?
+                </Link>
+              </div>
+            )}
             {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
             <Button type="submit" disabled={busy} className="w-full py-2.5 text-base">
               {busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}

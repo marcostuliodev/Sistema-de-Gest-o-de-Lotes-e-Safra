@@ -17,6 +17,8 @@ const Historico = lazy(() => import("./pages/historico"));
 const Analytics = lazy(() => import("./pages/analytics"));
 const Upgrade = lazy(() => import("./pages/upgrade"));
 const Colaboradores = lazy(() => import("./pages/colaboradores"));
+const ForgotPassword = lazy(() => import("./pages/forgot-password"));
+const ResetPassword = lazy(() => import("./pages/reset-password"));
 
 function Loading() {
   return <p className="p-6 text-sm text-stone-400">Carregando…</p>;
@@ -29,6 +31,22 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/forgot-password"
+          element={
+            <Suspense fallback={<Loading />}>
+              <ForgotPassword />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <Suspense fallback={<Loading />}>
+              <ResetPassword />
+            </Suspense>
+          }
+        />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
