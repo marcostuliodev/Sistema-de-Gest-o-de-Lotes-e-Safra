@@ -102,7 +102,7 @@ async function bootstrap() {
   bootstrapped = true;
   await logCronKey().catch(() => {});
 
-  if (process.env.SEED_DEMO !== "false") {
+  if (process.env.SEED_DEMO === "true") {
     const usersCol = await col("users");
     const count = await usersCol.countDocuments();
     if (count === 0) {

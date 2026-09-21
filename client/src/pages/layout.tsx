@@ -91,17 +91,15 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden lg:flex-row">
-      {/* Clock warning banner */}
+    <div className="flex h-dvh flex-col overflow-hidden">
+      {/* Banners — topo absoluto, acima de tudo */}
       {clockWarning && (
-        <div className="bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
+        <div className="shrink-0 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
           ⚠️ Possível manipulação de relógio detectada. Verifique a data/hora do seu dispositivo.
         </div>
       )}
-
-      {/* Email verification banner */}
       {!emailVerified && (
-        <div className="bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800">
+        <div className="shrink-0 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800 border-b border-amber-200">
           Seu e-mail não foi confirmado. Verifique sua caixa de entrada ou{" "}
           {resendBusy ? (
             <span>Reenviando...</span>
@@ -114,10 +112,8 @@ export default function Layout() {
           )}
         </div>
       )}
-
-      {/* Trial expiring soon banner */}
       {status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
-        <div className="bg-blue-50 px-4 py-2 text-center text-xs font-medium text-blue-800">
+        <div className="shrink-0 bg-blue-50 px-4 py-2 text-center text-xs font-medium text-blue-800">
           Seu trial termina em {trialRemaining} dia(s).{" "}
           <button onClick={() => navigate("/upgrade")} className="underline hover:text-blue-600">
             Assine agora
@@ -125,8 +121,10 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Sidebar (somente desktop) */}
-      <aside className="hidden lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-stone-200 lg:bg-white">
+      {/* Conteúdo principal */}
+      <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
+        {/* Sidebar (somente desktop) */}
+        <aside className="hidden lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-stone-200 lg:bg-white">
         <div className="flex items-center gap-2 px-5 py-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-700 text-white">
             <Leaf />
@@ -218,6 +216,7 @@ export default function Layout() {
       </div>
 
       <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      </div>
     </div>
   );
 }
