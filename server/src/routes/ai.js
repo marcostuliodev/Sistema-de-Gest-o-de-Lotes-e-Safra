@@ -302,7 +302,8 @@ router.post("/analyze", asyncHandler(async (req, res) => {
 router.get("/status", (_req, res) => {
   res.json({
     configured: !!groqKey(),
-    model: TEXT_MODEL,
+    textModel: TEXT_MODEL,
+    visionModel: VISION_MODEL,
   });
 });
 
