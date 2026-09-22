@@ -1,6 +1,6 @@
 /**
  * Menu lateral sanduíche (drawer) — conta, verificação de e-mail,
- * plano, atalhos, sincronização e sair.
+ * plano, atalhos, sincronização, limpeza de cache e sair.
  */
 
 import { useEffect, useState } from "react";
@@ -19,7 +19,9 @@ import {
   Users,
   WifiOff,
   X,
+  Trash,
 } from "./icons";
+import { db } from "../db/db";
 
 const PLAN_BADGES: Record<string, { label: string; tone: "gray" | "green" | "blue" | "amber" }> = {
   free: { label: "Free", tone: "gray" },
@@ -104,6 +106,34 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
       setResendMsg("Erro ao reenviar.");
     } finally {
       setResendBusy(false);
+    }
+  }
+
+  // Limpa todo o cache do usuário: Service Worker, IndexedDB, localStorage, sessionStorage
+  async function clearCache() {
+    try {
+      // 1. Fecha o Dexie (IndexedDB)
+      await db.close();
+      // 2. Deleta o banco IndexedDB
+      indexedDB.deleteDatabase("agrolote");
+      // 3. Limpa localStorage e sessionStorage
+      localStorage.clear();
+      sessionStorage.clear();
+      // 4. Limpa caches do Service Worker
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map((n) => caches.delete(n)));
+      }
+      // 5. Cancela o registro do Service Worker
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.unregister();
+      }
+      // 6. Recarrega a página com cache limpo
+      window.location.reload();
+    } catch {
+      // Mesmo se falhar em algum passo, força recarregar
+      window.location.reload();
     }
   }
 
@@ -259,8 +289,15 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           </section>
         </div>
 
-        {/* Rodapé — sair */}
-        <div className="border-t border-stone-200 p-4">
+        {/* Rodapé — limpar cache e sair */}
+        <div className="border-t border-stone-200 p-4 space-y-2">
+          <button
+            onClick={() => void clearCache()}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-100 px-3 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-200"
+          >
+            <Trash />
+            Limpar cache
+          </button>
           <button
             onClick={() => {
               onClose();

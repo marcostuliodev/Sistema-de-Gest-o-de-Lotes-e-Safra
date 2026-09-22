@@ -12,19 +12,23 @@ startSyncWatcher();
 import { registerSW } from "virtual:pwa-register";
 registerSW({
   immediate: true,
-  // Confere atualização periodicamente para puxar novos deploys sem
-  // exigir limpeza manual de cache do navegador.
+  // Atualização automática agressiva:
+  // - Checa a cada 10s enquanto a aba está aberta para puxar novos deploys
+  // - Recarrega imediatamente quando um novo SW é encontrado
+  // - Evita que o usuário precise limpar o cache manualmente
   onRegisteredSW(_swUrl, registration) {
     if (!registration) return;
+    // Checa novas versões a cada 10 segundos enquanto o app estiver aberto
     setInterval(() => {
       registration.update().catch(() => undefined);
-    }, 15 * 60 * 1000);
-    // Assim que um novo SW assume, recarrega para servir o bundle novo.
+    }, 10 * 1000);
+    // Quando um novo SW é instalado, recarrega imediatamente
     registration.addEventListener("updatefound", () => {
       const installing = registration.installing;
       if (!installing) return;
       installing.addEventListener("statechange", () => {
-        if (installing.state === "activated" && navigator.serviceWorker.controller) {
+        if (installing.state === "installed" && navigator.serviceWorker.controller) {
+          // Novo conteúdo disponível — recarrega na hora
           window.location.reload();
         }
       });
