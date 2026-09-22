@@ -113,7 +113,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Menu da conta">
+    <div className="fixed inset-0 z-[60]" style={{overflow: "hidden"}} role="dialog" aria-modal="true" aria-label="Menu da conta">
       {/* Overlay */}
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
 

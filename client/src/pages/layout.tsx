@@ -231,12 +231,12 @@ export default function Layout() {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-2.5 text-[10px] font-medium active:bg-stone-100 ${
+                  `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-xs font-medium active:bg-stone-100 ${
                     isActive ? "text-green-700" : "text-stone-400"
                   }`
                 }
               >
-                <span className="text-lg leading-none">{item.icon}</span>
+                <span className="text-xs leading-none">{item.icon}</span>
                 <span className="w-full break-words text-center leading-none">{item.label}</span>
               </NavLink>
             ))}
