@@ -9,6 +9,17 @@ const sw: any = self;
 sw.addEventListener("install", () => sw.skipWaiting());
 sw.addEventListener("activate", (event: any) => event.waitUntil(sw.clients.claim()));
 
+// Navegações (HTML) SEMPRE tentam a rede primeiro — senão o precache de
+// index.html segura o shell antigo e novos deploys (ex.: botão AgroIA)
+// nunca aparecem até o usuário limpar o cache.
+registerRoute(
+  ({ request }: { request: Request }) => request.mode === "navigate",
+  new NetworkFirst({
+    cacheName: "pages",
+    networkTimeoutSeconds: 4,
+  })
+);
+
 precacheAndRoute(((self as any).__WB_MANIFEST) || []);
 
 // Cache de API (exceto auth) em NetworkFirst.

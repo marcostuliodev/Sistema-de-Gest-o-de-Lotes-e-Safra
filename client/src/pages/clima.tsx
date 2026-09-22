@@ -47,9 +47,8 @@ export default function Clima() {
   return (
     <PlanGate
       feature="climaAlertas"
-      minPlan="premium"
       blockedTitle="Clima & Alertas"
-      blockedDescription="Faça upgrade para o plano Premium para acompanhar o clima e receber alertas na sua propriedade."
+      blockedDescription="Faça upgrade para o plano Básico ou superior para acompanhar o clima e receber alertas na sua propriedade."
     >
       <ClimaContent />
     </PlanGate>
