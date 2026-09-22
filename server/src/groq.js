@@ -1,16 +1,17 @@
 /**
  * Cliente da API Groq (compatível com OpenAI Chat Completions).
  * Focado em análise de imagens e texto para orquídeas e plantações.
+ * Usa apenas modelos Qwen (visão + texto).
  *
  * Env vars:
  *   GROQ_API_KEY        — obrigatória (chave gsk_...)
  *   GROQ_MODEL_VISION   — modelo de visão (padrão: qwen/qwen3.6-27b)
- *   GROQ_MODEL_TEXT     — modelo de texto (padrão: llama-3.3-70b-versatile)
+ *   GROQ_MODEL_TEXT     — modelo de texto (padrão: qwen/qwen3.6-27b)
  */
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-export const TEXT_MODEL = process.env.GROQ_MODEL_TEXT || "llama-3.3-70b-versatile";
+export const TEXT_MODEL = process.env.GROQ_MODEL_TEXT || "qwen/qwen3.6-27b";
 export const VISION_MODEL = process.env.GROQ_MODEL_VISION || "qwen/qwen3.6-27b";
 
 export function groqKey() {
