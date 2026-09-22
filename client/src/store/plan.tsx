@@ -19,6 +19,7 @@ export interface PlanFeatures {
   maxPlantios: number;
   maxFotos: number;
   maxColaboradores: number;
+  maxIaDia: number;
   relatoriosAvancados: boolean;
   climaAlertas: boolean;
   label: string;
@@ -43,6 +44,7 @@ const FREE_FEATURES: PlanFeatures = {
   maxPlantios: 5,
   maxFotos: 0,
   maxColaboradores: 0,
+  maxIaDia: 3,
   relatoriosAvancados: false,
   climaAlertas: false,
   label: "Gratuito",

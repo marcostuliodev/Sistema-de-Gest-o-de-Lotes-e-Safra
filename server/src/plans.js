@@ -9,6 +9,7 @@ export const TRIAL_DAYS = 10;
 /**
  * Limites por plano.
  * maxLotes / maxPlantios: 0 = sem acesso, Infinity = ilimitado.
+ * maxIaDia: análises de IA (texto ou foto) permitidas por dia.
  */
 export const PLANS = Object.freeze({
   free: Object.freeze({
@@ -17,6 +18,7 @@ export const PLANS = Object.freeze({
     maxPlantios: 5,
     maxFotos: 0,
     maxColaboradores: 0,
+    maxIaDia: 3,
     relatoriosAvancados: false,
     climaAlertas: false,
   }),
@@ -26,6 +28,7 @@ export const PLANS = Object.freeze({
     maxPlantios: 15,
     maxFotos: 5,
     maxColaboradores: 2,
+    maxIaDia: 30,
     relatoriosAvancados: true,
     climaAlertas: true,
   }),
@@ -35,6 +38,7 @@ export const PLANS = Object.freeze({
     maxPlantios: 50,
     maxFotos: 20,
     maxColaboradores: 5,
+    maxIaDia: 120,
     relatoriosAvancados: true,
     climaAlertas: true,
   }),
@@ -44,6 +48,7 @@ export const PLANS = Object.freeze({
     maxPlantios: 100,
     maxFotos: Infinity,
     maxColaboradores: 10,
+    maxIaDia: 10000,
     relatoriosAvancados: true,
     climaAlertas: true,
   }),

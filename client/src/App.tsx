@@ -18,6 +18,7 @@ const Historico = lazy(() => import("./pages/historico"));
 const Analytics = lazy(() => import("./pages/analytics"));
 const Upgrade = lazy(() => import("./pages/upgrade"));
 const Colaboradores = lazy(() => import("./pages/colaboradores"));
+const AgroIA = lazy(() => import("./pages/ia"));
 const ForgotPassword = lazy(() => import("./pages/forgot-password"));
 const ResetPassword = lazy(() => import("./pages/reset-password"));
 
@@ -152,6 +153,14 @@ export default function App() {
             element={
               <Suspense fallback={<Loading />}>
                 <Colaboradores />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/ia"
+            element={
+              <Suspense fallback={<Loading />}>
+                <AgroIA />
               </Suspense>
             }
           />

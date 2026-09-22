@@ -124,6 +124,7 @@ export interface PlanData {
   features: {
     maxLotes: number;
     maxPlantios: number;
+    maxIaDia: number;
     relatoriosAvancados: boolean;
     climaAlertas: boolean;
     label: string;

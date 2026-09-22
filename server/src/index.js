@@ -18,6 +18,7 @@ import cronRouter from "./routes/cron.js";
 import upgradeRouter from "./routes/upgrade.js";
 import photosRouter from "./routes/photos.js";
 import collaboratorsRouter from "./routes/collaborators.js";
+import aiRouter from "./routes/ai.js";
 import { startScheduler, logCronKey } from "./scheduler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -161,6 +162,7 @@ app.use("/api/cron", cronRouter);
 app.use("/api/upgrade", upgradeRouter);
 app.use("/api/photos", photosRouter);
 app.use("/api/collaborators", collaboratorsRouter);
+app.use("/api/ai", aiRouter);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Static files (apenas em ambientes que servem SPA — NÃO no Vercel)

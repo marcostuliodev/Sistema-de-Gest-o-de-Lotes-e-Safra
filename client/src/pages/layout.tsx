@@ -23,6 +23,7 @@ const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/colheitas", label: "Colheitas", icon: <Basket /> },
   { to: "/relatorios", label: "Relatórios", icon: <Chart /> },
   { to: "/clima", label: "Clima", icon: <Cloud /> },
+  { to: "/ia", label: "AgroIA", icon: <Sparkles /> },
   { to: "/colaboradores", label: "Colaboradores", icon: <Users /> },
 ];
 
@@ -39,6 +40,15 @@ function Cloud({}: {}) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em">
       <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19h11Z" />
       <path d="M8 19l-1 2M12 19l-1 2M16 19l-1 2" />
+    </svg>
+  );
+}
+
+function Sparkles({}: {}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em">
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" />
+      <path d="M19 15l.7 1.8L21.5 17.5l-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7L19 15Z" />
     </svg>
   );
 }
@@ -195,7 +205,7 @@ export default function Layout() {
 
         {/* Barra de navegação inferior (mobile) — em fluxo, nunca cobre o conteúdo */}
         <nav className="border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
-          <div className="grid grid-cols-9 px-1 py-1">
+          <div className="grid grid-cols-10 px-1 py-1">
             {nav.map((item) => (
               <NavLink
                 key={item.to}

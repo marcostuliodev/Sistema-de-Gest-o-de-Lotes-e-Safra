@@ -18,6 +18,7 @@ const PLANS = [
     features: [
       "5 lotes",
       "15 plantios",
+      "30 análises de IA/dia",
       "Relatórios avançados",
     ],
     notIncluded: ["Clima & Alertas"],
@@ -30,6 +31,7 @@ const PLANS = [
     features: [
       "20 lotes",
       "50 plantios",
+      "120 análises de IA/dia",
       "Relatórios avançados",
     ],
     notIncluded: ["Clima & Alertas"],
@@ -42,6 +44,7 @@ const PLANS = [
     features: [
       "40 lotes",
       "100 plantios",
+      "IA ilimitada (10k/dia)",
       "Relatórios avançados",
       "Clima & Alertas",
     ],
