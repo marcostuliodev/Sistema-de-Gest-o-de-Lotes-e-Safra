@@ -6,6 +6,7 @@ import { Chart, CloudCheck, CloudOff, Grid, Leaf, Logout, Basket, Box, WifiOff, 
 import { Badge } from "../components/ui";
 import { useState } from "react";
 import { UpgradeModal } from "../components/UpgradeModal";
+import { AccountMenu, HamburgerButton } from "../components/AccountMenu";
 
 const PLAN_BADGES: Record<string, { label: string; tone: "gray" | "green" | "blue" | "amber" }> = {
   free: { label: "Free", tone: "gray" },
@@ -58,6 +59,7 @@ export default function Layout() {
   const { plan, trialRemaining, status, blocked, clockWarning } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
   if (!session) {
@@ -130,6 +132,23 @@ export default function Layout() {
           </button>
         </div>
       )}
+
+      {/* Barra superior — hambúrguer do menu da conta (visível em todas as telas) */}
+      <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 bg-white px-3 py-2 lg:px-4">
+        <HamburgerButton onClick={() => setMenuOpen(true)} />
+        <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-700 text-white">
+            <Leaf />
+          </div>
+          <span className="text-sm font-extrabold text-stone-800">Agrolote</span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+          {status === "trial" && trialRemaining >= 0 && (
+            <span className="hidden text-xs text-stone-400 sm:inline">Trial {trialRemaining}d</span>
+          )}
+        </div>
+      </header>
 
       {/* Conteúdo principal */}
       <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
@@ -226,6 +245,7 @@ export default function Layout() {
       </div>
 
       <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      <AccountMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
       </div>
     </div>
   );

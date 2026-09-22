@@ -34,3 +34,5 @@ export const Users = (p: SVGProps<SVGSVGElement>) => (
 export const Check = (p: SVGProps<SVGSVGElement>) => base(p, "M20 6 9 17l-5-5");
 export const Clock = (p: SVGProps<SVGSVGElement>) => base(p, "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10ZM12 6v6l4 2");
 export const Mail = (p: SVGProps<SVGSVGElement>) => base(p, "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2ZM22 6l-10 7L2 6");
+export const XIcon = X;
+export const Cloud = (p: SVGProps<SVGSVGElement>) => base(p, "M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.5A4 4 0 0 0 6.5 19h11Z M8 19l-1 2M12 19l-1 2M16 19l-1 2");
