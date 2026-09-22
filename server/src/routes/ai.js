@@ -13,7 +13,7 @@ import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { getPlanFeatures } from "../plans.js";
-import { groqChat, parseAiJson, TEXT_MODEL, VISION_MODEL, groqKey } from "../groq.js";
+import { groqChat, parseAiJson, groqKey, MODEL } from "../groq.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -147,7 +147,7 @@ router.post("/chat", asyncHandler(async (req, res) => {
 
     const { content, model } = await groqChat({
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...clean],
-      model: TEXT_MODEL,
+      model: MODEL,
       maxTokens: 1200,
       temperature: 0.5,
     });
@@ -258,7 +258,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       : "Analise esta foto de planta/orquídea e responda com o JSON solicitado.";
 
     const { content, model } = await groqChat({
-      model: VISION_MODEL,
+      model: MODEL,
       json: true,
       maxTokens: 1500,
       temperature: 0.3,
@@ -302,8 +302,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
 router.get("/status", (_req, res) => {
   res.json({
     configured: !!groqKey(),
-    textModel: TEXT_MODEL,
-    visionModel: VISION_MODEL,
+    model: MODEL,
   });
 });
 
