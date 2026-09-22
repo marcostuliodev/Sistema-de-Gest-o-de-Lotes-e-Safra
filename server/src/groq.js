@@ -13,7 +13,7 @@
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-const MODEL = process.env.GROQ_MODEL || "qwen/qwen3.6-27b";
+const MODEL = process.env.GROQ_MODEL || "qwen/qwen3.8-27b";
 
 export { MODEL };
 
