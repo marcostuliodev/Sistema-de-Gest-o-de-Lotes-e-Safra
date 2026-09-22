@@ -2,7 +2,7 @@ import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
 import { usePlan } from "../store/plan";
-import { Chart, CloudCheck, CloudOff, Grid, Leaf, Logout, Basket, Box, WifiOff, Users } from "../components/icons";
+import { CloudCheck, CloudOff, Grid, Leaf, Logout, WifiOff, Users } from "../components/icons";
 import { Badge } from "../components/ui";
 import { useState } from "react";
 import { UpgradeModal } from "../components/UpgradeModal";
@@ -17,15 +17,11 @@ const PLAN_BADGES: Record<string, { label: string; tone: "gray" | "green" | "blu
 
 const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/", label: "Painel", icon: <Grid />, end: true },
-  { to: "/lotes", label: "Lotes", icon: <Map /> },
   { to: "/plantios", label: "Plantios", icon: <Leaf /> },
-  { to: "/insumos", label: "Insumos", icon: <Box /> },
-  { to: "/gastos", label: "Gastos", icon: <Chart /> },
-  { to: "/colheitas", label: "Colheitas", icon: <Basket /> },
-  { to: "/relatorios", label: "Relatórios", icon: <Chart /> },
-  { to: "/clima", label: "Clima", icon: <Cloud /> },
+  { to: "/lotes", label: "Lotes", icon: <Map /> },
   { to: "/ia", label: "AgroIA", icon: <Sparkles /> },
-  { to: "/colaboradores", label: "Colaboradores", icon: <Users /> },
+  { to: "/clima", label: "Clima", icon: <Cloud /> },
+  { to: "/colaboradores", label: "Colab.", icon: <Users /> },
 ];
 
 function Map({}: {}) {
@@ -224,7 +220,7 @@ export default function Layout() {
 
         {/* Barra de navegação inferior (mobile) — em fluxo, nunca cobre o conteúdo */}
         <nav className="border-t border-stone-200 bg-white/95 backdrop-blur pb-safe-nav lg:hidden">
-          <div className="grid grid-cols-10 px-1 py-1">
+          <div className="grid grid-cols-6 px-1 py-1">
             {nav.map((item) => (
               <NavLink
                 key={item.to}
