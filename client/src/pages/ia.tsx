@@ -187,7 +187,8 @@ function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<AiAnalysis | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   function pickFile(f: File | null | undefined) {
     setError("");
@@ -224,13 +225,16 @@ function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
   return (
     <div className="space-y-4">
       <Card>
-        <p className="mb-3 text-sm font-semibold text-stone-700">Enviar foto da planta</p>
+        <p className="mb-3 text-sm font-semibold text-stone-700">Foto da planta</p>
 
+        {/* Área de preview / zona de toque */}
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => (preview ? galleryRef.current?.click() : cameraRef.current?.click())}
           className={`flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-10 transition-colors ${
-            preview ? "border-green-300 bg-green-50/40" : "border-stone-300 bg-stone-50 hover:border-green-400 hover:bg-green-50/40"
+            preview
+              ? "border-green-300 bg-green-50/40"
+              : "border-stone-300 bg-stone-50 hover:border-green-400 hover:bg-green-50/40"
           }`}
         >
           {preview ? (
@@ -240,17 +244,44 @@ function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
               <span className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 text-green-700">
                 <Camera />
               </span>
-              <span className="text-sm font-medium text-stone-600">Toque para escolher uma foto</span>
+              <span className="text-sm font-medium text-stone-600">Toque para tirar uma foto agora</span>
               <span className="text-xs text-stone-400">JPEG, PNG ou WebP · máx. 5MB</span>
             </>
           )}
         </button>
+
+        {/* Ações: câmera + galeria */}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button variant="subtle" onClick={() => cameraRef.current?.click()}>
+            📷 Tirar foto
+          </Button>
+          <Button variant="subtle" onClick={() => galleryRef.current?.click()}>
+            🖼️ Galeria
+          </Button>
+        </div>
+
+        {/* Input câmera — capture abre a câmera traseira direto no celular */}
         <input
-          ref={inputRef}
+          ref={cameraRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            pickFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        {/* Input galeria */}
+        <input
+          ref={galleryRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           className="hidden"
-          onChange={(e) => pickFile(e.target.files?.[0])}
+          onChange={(e) => {
+            pickFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
         />
 
         <div className="mt-4">

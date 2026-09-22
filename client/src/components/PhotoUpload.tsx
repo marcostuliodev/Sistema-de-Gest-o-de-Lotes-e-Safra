@@ -33,6 +33,7 @@ export function PhotoUpload({
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   const loadPhotos = useCallback(async () => {
     if (!plantioId) return;
@@ -186,22 +187,41 @@ export function PhotoUpload({
                 </div>
               </div>
             ) : (
-              <label className="flex cursor-pointer flex-col items-center gap-2">
-                <Camera className="h-8 w-8 text-stone-400" />
-                <span className="text-sm font-medium text-stone-600">
-                  Clique para selecionar uma foto
-                </span>
-                <span className="text-xs text-stone-400">
-                  JPEG, PNG ou WebP · Máx. 5MB
-                </span>
+              <div className="flex flex-col items-center gap-3">
+                <div className="grid w-full grid-cols-2 gap-2">
+                  <Button variant="subtle" onClick={() => cameraRef.current?.click()}>
+                    📷 Tirar foto
+                  </Button>
+                  <Button variant="subtle" onClick={() => fileRef.current?.click()}>
+                    🖼️ Galeria
+                  </Button>
+                </div>
+                <label className="flex cursor-pointer flex-col items-center gap-2">
+                  <Camera className="h-8 w-8 text-stone-400" />
+                  <span className="text-sm font-medium text-stone-600">
+                    Toque para selecionar uma foto
+                  </span>
+                  <span className="text-xs text-stone-400">
+                    JPEG, PNG ou WebP · Máx. 5MB
+                  </span>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </label>
+                {/* Câmera — abre a câmera traseira direto no celular */}
                 <input
-                  ref={fileRef}
+                  ref={cameraRef}
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
+                  capture="environment"
                   className="hidden"
                   onChange={handleFileChange}
                 />
-              </label>
+              </div>
             )}
           </div>
         )}
