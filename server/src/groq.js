@@ -1,15 +1,14 @@
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const TEXT_MODEL = process.env.GROQ_TEXT_MODEL || "openai/gpt-oss-120b";
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
+const MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
-export { TEXT_MODEL, VISION_MODEL };
+export { MODEL };
 
 export function groqKey() { return process.env.GROQ_API_KEY || ""; }
 
 export async function groqChat({ model, messages, json = false, maxTokens = 1000, temperature = 0.7 }) {
   const key = groqKey();
   if (!key) throw new Error("GROQ_API_KEY não configurada");
-  const body = { model, messages, max_tokens: maxTokens, temperature };
+  const body = { model: model || MODEL, messages, max_tokens: maxTokens, temperature };
   if (json) body.response_format = { type: "json_object" };
   const res = await fetch(GROQ_URL, {
     method: "POST",
@@ -18,7 +17,7 @@ export async function groqChat({ model, messages, json = false, maxTokens = 1000
   });
   if (!res.ok) { const err = await res.text(); throw new Error(`Groq API error ${res.status}: ${err}`); }
   const data = await res.json();
-  return { content: data.choices[0]?.message?.content || "", model };
+  return { content: data.choices[0]?.message?.content || "", model: model || MODEL };
 }
 
 export function parseAiJson(content) {
