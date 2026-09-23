@@ -13,6 +13,7 @@
 
 import express, { Router } from "express";
 import crypto from "node:crypto";
+import Stripe from "stripe";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
@@ -26,6 +27,13 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const APP_URL = process.env.APP_URL || (IS_PROD ? "https://agrolote.marcostuliogc.com.br" : "http://localhost:5173");
+
+// Import estático: o bundler do Vercel garante que `stripe` entre na function.
+// Dynamic import("stripe") não era resolvido → 500 no checkout/webhook.
+function stripeClient() {
+  if (!STRIPE_SECRET) return null;
+  return new Stripe(STRIPE_SECRET);
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // GET /api/upgrade/plans — Lista planos públicos (não requer auth)
@@ -86,7 +94,7 @@ router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
     let customerId = sub?.stripe_customer_id;
 
     if (!customerId) {
-      const stripe = (await import("stripe")).default(STRIPE_SECRET);
+      const stripe = stripeClient();
       const customer = await stripe.customers.create({
         email: req.user.email,
         metadata: { userId: String(req.user.uid) },
@@ -99,7 +107,7 @@ router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
       );
     }
 
-    const stripe = (await import("stripe")).default(STRIPE_SECRET);
+    const stripe = stripeClient();
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
@@ -130,7 +138,7 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
     return res.status(503).json({ error: "Webhook não configurado" });
   }
 
-  const stripe = (await import("stripe")).default(STRIPE_SECRET);
+  const stripe = stripeClient();
   let event;
   try {
     event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], STRIPE_WEBHOOK_SECRET);

@@ -14,11 +14,12 @@
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
-// Modelos fallback (tentados em ordem se o primário falhar)
+// Modelos fallback (tentados em ordem se o primário falhar).
+// NÃO incluir gemini-2.0-flash — API retorna 404 "no longer available".
 const FALLBACK_MODELS = [
   MODEL,
   "gemini-2.5-flash",
-  "gemini-2.0-flash",
+  "gemini-2.5-pro",
 ].filter((m, i, a) => a.indexOf(m) === i); // remove duplicados
 
 const MAX_RETRIES = 2;
@@ -105,15 +106,21 @@ export async function aiChat({
         return await callModel(model, key, body);
       } catch (err) {
         lastErr = err;
-        // Se não é retryável (erro de auth, bad request), não tenta mais
-        if (!err.retryable) break;
-        // Espera antes de retry (backoff exponencial)
+        // 404 = modelo indisponível → tenta o próximo fallback (não retries)
+        // 400/413 etc = request inválido neste modelo → próximo fallback
+        // 429/503 = rate limit → retry com backoff
+        const tryNextModel =
+          err.status === 404 ||
+          err.status === 400 ||
+          err.status === 413 ||
+          (!err.retryable && err.status !== 429 && err.status !== 503);
+        if (tryNextModel) break;
         if (attempt < MAX_RETRIES) {
           await sleep(RETRY_DELAY * (attempt + 1));
         }
       }
     }
-    // Modelo falhou mesmo com retries, tenta o próximo fallback
+    // Modelo falhou, tenta o próximo fallback
   }
 
   throw lastErr;

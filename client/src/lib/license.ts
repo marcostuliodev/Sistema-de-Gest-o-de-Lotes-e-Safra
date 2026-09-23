@@ -76,24 +76,26 @@ function base64ToUint8Array(base64: string): Uint8Array {
 
 /**
  * Obtém a chave pública do servidor (ou cache local).
+ * SEMPRE tenta o servidor primeiro — se a chave do server mudou (redeploy
+ * com env nova), o cache local antigo invalidaria a verificação offline.
  */
 async function getPublicKey(): Promise<string | null> {
-  // Tenta cache local primeiro
-  const cached = localStorage.getItem(PUBLIC_KEY_CACHE_KEY);
-  if (cached) return cached;
-
   try {
     const res = await fetch("/api/upgrade/public-key", { credentials: "include" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.publicKey) {
-      localStorage.setItem(PUBLIC_KEY_CACHE_KEY, data.publicKey);
-      return data.publicKey;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.publicKey) {
+        const cached = localStorage.getItem(PUBLIC_KEY_CACHE_KEY);
+        if (cached !== data.publicKey) {
+          localStorage.setItem(PUBLIC_KEY_CACHE_KEY, data.publicKey);
+        }
+        return data.publicKey;
+      }
     }
   } catch {
     // Offline — usa cache
   }
-  return cached;
+  return localStorage.getItem(PUBLIC_KEY_CACHE_KEY);
 }
 
 /**

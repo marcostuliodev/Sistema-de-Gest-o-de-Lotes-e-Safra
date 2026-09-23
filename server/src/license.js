@@ -30,9 +30,34 @@ function ensureKeys() {
 
   // 1. Tenta env vars (ideal para Vercel/serverless)
   if (process.env.LICENSE_PRIVATE_KEY && process.env.LICENSE_PUBLIC_KEY) {
-    privateKey = process.env.LICENSE_PRIVATE_KEY.replace(/\\n/g, "\n");
-    publicKey = process.env.LICENSE_PUBLIC_KEY.replace(/\\n/g, "\n");
-    return;
+    const privRaw = process.env.LICENSE_PRIVATE_KEY;
+    const pubRaw = process.env.LICENSE_PUBLIC_KEY;
+    // Normaliza: \n literais do env → newlines reais (idempotente)
+    const candidates = [
+      privRaw.replace(/\\n/g, "\n"),
+      privRaw.replace(/\r\n/g, "\n").replace(/\\n/g, "\n"),
+      privRaw,
+    ];
+    let loaded = false;
+    for (const priv of candidates) {
+      try {
+        // Valida de fato a chave (catch DECODER unsupported cedo)
+        crypto.createPrivateKey(priv);
+        const pub = pubRaw.replace(/\\n/g, "\n");
+        crypto.createPublicKey(pub);
+        privateKey = priv;
+        publicKey = pub;
+        loaded = true;
+        break;
+      } catch {
+        // tenta próximo formato
+      }
+    }
+    if (loaded) return;
+    console.error(
+      "[license] LICENSE_PRIVATE_KEY/PUBLIC_KEY inválidas no env — gerando chaves temporárias. " +
+        "Atualize as env vars com um par PKCS#8/SPKI PEM válido."
+    );
   }
 
   // 2. Tenta arquivos locais (Render, VPS, desenvolvimento)
