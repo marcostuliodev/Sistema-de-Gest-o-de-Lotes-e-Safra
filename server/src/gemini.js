@@ -15,11 +15,15 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 // Modelos fallback (tentados em ordem se o primário falhar).
-// NÃO incluir gemini-2.0-flash — API retorna 404 "no longer available".
+// NÃO incluir gemini-2.0-flash nem gemini-2.5-pro — API retorna 404
+// "no longer available to new users".
 const FALLBACK_MODELS = [
   MODEL,
+  "gemini-3.6-flash",
   "gemini-2.5-flash",
-  "gemini-2.5-pro",
+  "gemini-3.1-flash-preview",
+  "gemini-3.1-pro-preview",
+  "gemini-2.5-flash-lite",
 ].filter((m, i, a) => a.indexOf(m) === i); // remove duplicados
 
 const MAX_RETRIES = 2;
@@ -43,18 +47,26 @@ async function callModel(model, key, body) {
     body: JSON.stringify(body),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = data?.error?.message || res.statusText;
     const err = new Error(`Gemini API error ${res.status}: ${msg}`);
     err.status = res.status;
     err.retryable = res.status === 429 || res.status === 503;
+    err.body = data;
     throw err;
   }
 
   const parts = data?.candidates?.[0]?.content?.parts || [];
   const content = parts.map((p) => p.text || "").join("");
   return { content, model };
+}
+
+/** Alguns modelos rejeitam thinkingConfig/400 — remove e tenta de novo. */
+function stripUnsupportedConfig(body) {
+  const g = { ...(body.generationConfig || {}) };
+  delete g.thinkingConfig;
+  return { ...body, generationConfig: g };
 }
 
 /**
@@ -101,17 +113,26 @@ export async function aiChat({
   // Tenta cada modelo com retries
   let lastErr;
   for (const model of FALLBACK_MODELS) {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let bodyTry = body;
+    let stripped = false;
+    for (let attempt = 0; attempt <= MAX_RETRIES + 1; attempt++) {
       try {
-        return await callModel(model, key, body);
+        return await callModel(model, key, bodyTry);
       } catch (err) {
         lastErr = err;
-        // 404 = modelo indisponível → tenta o próximo fallback (não retries)
-        // 400/413 etc = request inválido neste modelo → próximo fallback
+        // 400 com thinkingConfig → remove config e tenta o MESMO modelo de novo
+        if (!stripped && err.status === 400) {
+          bodyTry = stripUnsupportedConfig(body);
+          stripped = true;
+          attempt = -1; // reseta tentativas do modelo
+          continue;
+        }
+        // 404 = modelo indisponível → tenta o próximo fallback (sem retry)
+        // 400 residual / 413 etc → próximo fallback
         // 429/503 = rate limit → retry com backoff
         const tryNextModel =
           err.status === 404 ||
-          err.status === 400 ||
+          (err.status === 400 && stripped) ||
           err.status === 413 ||
           (!err.retryable && err.status !== 429 && err.status !== 503);
         if (tryNextModel) break;
