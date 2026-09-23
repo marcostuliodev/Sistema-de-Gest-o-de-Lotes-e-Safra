@@ -238,6 +238,7 @@ useEffect(() => {
                 onChange={(e) => setGeoQuery(e.target.value)}
                 placeholder="Ex.: Cascavel, GO"
                 onKeyDown={(e) => e.key === "Enter" && doGeocode()}
+                className="flex-1 min-w-0"
               />
               <Button onClick={doGeocode} disabled={geoBusy}>
                 {geoBusy ? "Buscando…" : "Buscar"}
@@ -252,7 +253,7 @@ useEffect(() => {
                     onClick={() => selectGeo(g)}
                     className="flex w-full items-center justify-between py-2.5 text-left hover:text-green-700"
                   >
-                    <span className="font-medium text-stone-800">{g.label}</span>
+                    <span className="min-w-0 truncate font-medium text-stone-800">{g.label}</span>
                     <span className="text-xs text-stone-400">{g.timezone}</span>
                   </button>
                 </li>
@@ -300,7 +301,7 @@ useEffect(() => {
               </p>
               <p className="text-sm text-stone-500">Sensação {cur.apparent_temperature.toFixed(0)}°C</p>
             </div>
-            <div className="text-7xl">{code.icon}</div>
+            <div className="text-5xl sm:text-7xl">{code.icon}</div>
           </div>
         </Card>
       )}
@@ -322,7 +323,7 @@ useEffect(() => {
       {/* Gráfico de temperatura/UV (24h) */}
       {weather && weather.hourly.length > 0 && (
         <Card>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-stone-800">Temperatura e UV — 24h</h2>
             <div className="flex items-center gap-3 text-xs text-stone-500">
               <span className="flex items-center gap-1">
@@ -436,11 +437,11 @@ useEffect(() => {
                       <p className="text-xs text-stone-400">{c.label}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
                     <span className="text-stone-400">{d.temperature_2m_min.toFixed(0)}°</span>
                     <span className="font-semibold text-stone-800">{d.temperature_2m_max.toFixed(0)}°</span>
-                    <span className="text-blue-600">{d.precipitation_sum.toFixed(0)}mm</span>
-                    <span className="text-amber-600">UV {d.uv_index_max}</span>
+                    <span className="hidden text-blue-600 sm:inline">{d.precipitation_sum.toFixed(0)}mm</span>
+                    <span className="hidden text-amber-600 sm:inline">UV {d.uv_index_max}</span>
                   </div>
                 </li>
               );
@@ -452,7 +453,7 @@ useEffect(() => {
       {/* Histórico de alertas */}
       {history.length > 0 && (
         <Card>
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-stone-800">Alertas enviados</h2>
             <Link to="/historico" className="text-xs font-medium text-green-700 underline-offset-2 hover:underline">
               Ver histórico completo →

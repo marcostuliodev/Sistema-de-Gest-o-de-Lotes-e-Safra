@@ -360,7 +360,7 @@ function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
   if (limitReached) return <UpgradeCTA message={limitReached} />;
 
   return (
-    <div className="flex h-full min-h-[420px] flex-col">
+    <div className="flex h-full min-h-[50vh] sm:min-h-[420px] flex-col">
       <Card className="flex min-h-0 flex-1 flex-col !p-0">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {messages.length === 0 && (
@@ -429,7 +429,7 @@ function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Pergunte sobre orquídeas ou plantações…"
             disabled={busy}
-            className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-stone-400 focus:border-green-600 focus:ring-2 focus:ring-green-500/30 disabled:bg-stone-50"
+            className="w-full flex-1 min-w-0 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-stone-400 focus:border-green-600 focus:ring-2 focus:ring-green-500/30 disabled:bg-stone-50"
           />
           <Button type="submit" disabled={busy || !input.trim()}>
             Enviar

@@ -92,7 +92,7 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
         </span>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {PLANS.map((p) => {
           const isCurrent = currentPlan === p.id;
           const isHighlighted = highlight === p.id;

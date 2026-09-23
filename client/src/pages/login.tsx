@@ -69,7 +69,7 @@ export default function Login() {
               <p className="mt-2 text-sm text-stone-500">
                 Enviamos um link de confirmação para:
               </p>
-              <p className="mt-1 text-sm font-medium text-stone-700">{registeredEmail}</p>
+              <p className="mt-1 break-all text-sm font-medium text-stone-700">{registeredEmail}</p>
 
               {resendMsg && (
                 <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{resendMsg}</p>

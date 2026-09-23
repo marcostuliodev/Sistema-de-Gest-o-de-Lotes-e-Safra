@@ -56,7 +56,7 @@ export default function Dashboard() {
 
       {attAntigas.length > 0 && (
         <Card className="border-amber-300 bg-amber-50">
-          <div className="flex items-center gap-2 font-semibold text-amber-800">
+          <div className="flex flex-wrap items-center gap-2 font-semibold text-amber-800">
             <Warning /> {attAntigas.length} colheita(s) previsão vencida
           </div>
           <ul className="mt-2 space-y-1 text-sm text-amber-700">
@@ -71,7 +71,7 @@ export default function Dashboard() {
       )}
 
       <Card>
-        <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-bold text-stone-800">Próximas colheitas</h2>
           <Link to="/colheitas" className="text-sm font-medium text-green-700 hover:underline">Registrar colheita</Link>
         </div>

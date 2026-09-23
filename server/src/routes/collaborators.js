@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "crypto";
 import { v4 as uuid } from "uuid";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
@@ -71,6 +72,7 @@ router.post("/invite", asyncHandler(async (req, res) => {
   }
 
   const id = uuid();
+  const inviteToken = crypto.randomBytes(32).toString("hex");
   const doc = {
     _id: id,
     id,
@@ -79,10 +81,65 @@ router.post("/invite", asyncHandler(async (req, res) => {
     email: normalizedEmail,
     role,
     status: "pending",
+    token: inviteToken,
     created_at: new Date().toISOString(),
   };
 
   await collabsCol.insertOne(doc);
+
+  // Send invitation email
+  const owner = await usersCol.findOne({ _id: req.user.uid });
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const APP_URL = process.env.APP_URL || "https://agrolote.marcostuliogc.com.br";
+  const inviteUrl = `${APP_URL}/colaboradores`;
+  const roleLabel = role === "admin" ? "Administrador" : "Visualizador";
+
+  if (RESEND_API_KEY) {
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(RESEND_API_KEY);
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM || "Agrolote <noreply@agrolote.marcostuliogc.com.br>",
+        to: normalizedEmail,
+        subject: `${owner?.name || "Alguém"} te convidou para colaborar no Agrolote`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+            <div style="text-align: center; margin-bottom: 32px;">
+              <div style="display: inline-block; background: #16a34a; color: white; width: 48px; height: 48px; border-radius: 12px; line-height: 48px; font-size: 24px;">🌱</div>
+              <h1 style="color: #1c1917; margin-top: 16px;">Convite para colaborar</h1>
+            </div>
+            <p style="color: #57534e; font-size: 14px;">
+              Olá,
+            </p>
+            <p style="color: #57534e; font-size: 14px;">
+              <strong>${owner?.name || "Alguém"}</strong> (${owner?.email || req.user.email}) te convidou para colaborar no Agrolote.
+            </p>
+            <p style="color: #57534e; font-size: 14px;">
+              Papel: <strong>${roleLabel}</strong>
+            </p>
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="${inviteUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                Aceitar convite
+              </a>
+            </div>
+            <p style="color: #57534e; font-size: 14px;">
+              Para aceitar, você precisa ter uma conta no Agrolote com o e-mail <strong>${normalizedEmail}</strong>. Se ainda não tem, crie sua conta com esse e-mail e depois aceite o convite.
+            </p>
+            <p style="color: #a8a29e; font-size: 12px; text-align: center;">
+              Se você não esperava este convite, ignore este e-mail.
+            </p>
+          </div>
+        `,
+      });
+      console.log(`[invite] Email de convite enviado para ${normalizedEmail}`);
+    } catch (e) {
+      console.error("[invite] Erro ao enviar email de convite:", e.message);
+      console.log(`[invite] URL de convite (fallback): ${inviteUrl}`);
+    }
+  } else {
+    console.log(`[invite] RESEND_API_KEY não configurado. URL de convite: ${inviteUrl}`);
+  }
+
   res.status(201).json(sanitizeRow(doc));
 }));
 
@@ -140,7 +197,7 @@ router.post("/accept", asyncHandler(async (req, res) => {
     { _id: id },
     {
       $set: {
-        user_id: req.user.uid,
+        user_id: invite.user_id ?? req.user.uid,
         status: "active",
       },
     }
@@ -175,15 +232,17 @@ router.get("/my-access", asyncHandler(async (req, res) => {
 // GET /api/collaborators/pending - List pending invitations for current user
 router.get("/pending", asyncHandler(async (req, res) => {
   const collabsCol = await col("collaborators");
-  const rows = await collabsCol
-    .find({ user_id: req.user.uid, status: "pending" })
-    .sort({ created_at: -1 })
-    .toArray();
+  const pending = await collabsCol.find({
+    $or: [
+      { user_id: req.user.uid, status: "pending" },
+      { email: req.user.email, status: "pending", user_id: null },
+    ],
+  }).sort({ created_at: -1 }).toArray();
 
   // Get owner info for each invitation
   const usersCol = await col("users");
   const result = [];
-  for (const row of rows) {
+  for (const row of pending) {
     const owner = await usersCol.findOne({ _id: row.owner_id });
     result.push({
       ...sanitizeRow(row),

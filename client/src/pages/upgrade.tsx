@@ -173,7 +173,7 @@ export default function Upgrade() {
                 </div>
               )}
               <h3 className="text-lg font-bold text-stone-800">{p.label}</h3>
-              <div className="mt-2">
+              <div className="mt-2 flex flex-wrap items-baseline gap-1">
                 <span className="text-2xl font-extrabold text-stone-800">{price}</span>
                 <span className="text-sm text-stone-500">{period}</span>
               </div>

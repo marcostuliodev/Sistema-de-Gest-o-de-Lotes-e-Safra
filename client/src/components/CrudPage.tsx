@@ -112,12 +112,12 @@ export function CrudPage({ config }: { config: CrudConfig }) {
           <h1 className="text-xl font-bold text-stone-800">{config.title}</h1>
           <p className="text-sm text-stone-500">{config.subtitle}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <TextInput
             placeholder={config.searchPlaceholder ?? `Buscar...`}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-44 sm:w-56"
+            className="w-full sm:w-44"
           />
           <Button onClick={openNew}>
             <Plus /> {config.addLabel}
@@ -138,7 +138,7 @@ export function CrudPage({ config }: { config: CrudConfig }) {
       ) : (
         <Card className="overflow-hidden p-0">
           <div className="scroll-thin overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[560px] md:min-w-0 text-sm">
               <thead>
                 <tr className="border-b border-stone-200 bg-stone-50 text-left text-xs uppercase tracking-wide text-stone-500">
                   {config.columns.map((c) => (
@@ -159,10 +159,10 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                     ))}
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" onClick={() => openEdit(row)} title="Editar">
+                        <Button variant="ghost" onClick={() => openEdit(row)} title="Editar" className="p-2.5 sm:p-2">
                           <Pencil />
                         </Button>
-                        <Button variant="danger" onClick={() => del(row)} title="Excluir">
+                        <Button variant="danger" onClick={() => del(row)} title="Excluir" className="p-2.5 sm:p-2">
                           <Trash />
                         </Button>
                       </div>
@@ -177,7 +177,7 @@ export function CrudPage({ config }: { config: CrudConfig }) {
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? `Editar ${config.title}` : `Novo ${config.addLabel.toLowerCase()}`}>
         <Form onSubmit={(e) => void submit(e)}>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {config.fields.map((f) => (
               <div key={f.name} className={f.type === "select" && f.multiple ? "col-span-2" : ""}>
                 <Field label={f.label} required={f.required}>

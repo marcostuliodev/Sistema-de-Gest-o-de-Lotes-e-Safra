@@ -91,7 +91,7 @@ function RelatoriosContent() {
           {culturaRows.length === 0 ? (
             <p className="px-5 pb-6 pt-2 text-sm text-stone-400">Sem dados ainda. Cadastre plantios, gastos e colheitas para ver o resultado.</p>
           ) : (
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[640px] md:min-w-0 text-sm">
               <thead>
                 <tr className="border-t border-stone-200 bg-stone-50 text-left text-xs uppercase tracking-wide text-stone-500">
                   <th className="px-5 py-3 font-semibold">Cultura</th>
@@ -132,7 +132,7 @@ function RelatoriosContent() {
             {perLote.map((l) => (
               <li key={l.lote} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium text-stone-700">{l.lote}</span>
-                <span className="flex items-center gap-3 text-sm">
+                <span className="flex flex-wrap items-center gap-3 text-sm">
                   <span className="text-stone-400">custo <Money value={l.custo} /></span>
                   <span className="text-stone-400">receita <Money value={l.receita} /></span>
                   <span className={`font-semibold ${l.lucro >= 0 ? "text-green-700" : "text-red-600"}`}>

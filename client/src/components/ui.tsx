@@ -22,7 +22,7 @@ export function Button({ children, onClick, type = "button", variant = "primary"
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${styles} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${styles} ${className}`}
     >
       {children}
     </button>
@@ -103,7 +103,7 @@ export function StatCard({ label, value, accent, sub }: { label: string; value: 
   return (
     <Card>
       <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
-      <p className={`mt-1 text-2xl font-extrabold tabular-nums ${color}`}>{value}</p>
+      <p className={`mt-1 text-lg sm:text-2xl font-extrabold tabular-nums truncate ${color}`}>{value}</p>
       {sub && <p className="mt-0.5 text-xs text-stone-400">{sub}</p>}
     </Card>
   );

@@ -139,7 +139,7 @@ export default function Colaboradores() {
             {pendingInvites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
               >
                 <div className="flex items-center gap-3">
                   <Clock className="text-amber-600" />
@@ -206,7 +206,7 @@ export default function Colaboradores() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Mail className="text-stone-400" />
-                        <span className="font-medium text-stone-800">{collab.email}</span>
+                        <span className="max-w-[140px] truncate font-medium text-stone-800">{collab.email}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">

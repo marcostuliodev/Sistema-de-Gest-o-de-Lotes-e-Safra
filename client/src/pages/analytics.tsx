@@ -189,14 +189,14 @@ function AnalyticsContent() {
             {culturaRows.map((r, i) => (
               <div key={r.cultura}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-stone-700">
+                  <span className="min-w-0 truncate text-sm font-medium text-stone-700">
                     {i + 1}. {r.cultura}
                   </span>
                   <span className={`text-xs font-semibold ${r.lucro >= 0 ? "text-green-700" : "text-red-600"}`}>
                     <Money value={r.lucro} /> <span className="text-stone-400 font-normal">({r.margem.toFixed(1)}%)</span>
                   </span>
                 </div>
-                <div className="flex items-end gap-0.5 h-5">
+                <div className="flex items-end gap-0.5 h-5 overflow-hidden">
                   <div
                     className="bg-green-400 rounded-l transition-all"
                     style={{ width: `${(r.receita / maxReceita) * 100}%` }}
