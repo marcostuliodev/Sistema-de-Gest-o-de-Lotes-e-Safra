@@ -1,179 +1,190 @@
 /**
- * Cliente Google Gemini — texto + visão (foto) num modelo só.
+ * Cliente Google Gemini — texto e visão com rotação de chaves e fallbacks.
  *
- * Env vars:
- *   GEMINI_API_KEY    — chave 1 (obrigatória; aistudio.google.com/apikey)
- *   GEMINI_API_KEY_2.._5 — chaves adicionais (opcional; rotação round-robin)
- *   GEMINI_MODEL      — opcional (padrão: gemini-3.5-flash-lite)
+ * Variáveis de ambiente:
+ *   GEMINI_API_KEY       — primeira chave (obrigatória)
+ *   GEMINI_API_KEY_2..10 — chaves adicionais (opcionais)
+ *   GEMINI_MODEL         — modelo principal de texto (opcional)
+ *   GEMINI_VISION_MODEL  — modelo principal de análise de imagem (opcional)
+ *   GEMINI_MODELS        — lista de fallbacks separada por vírgula (opcional)
  *
- * Estratégia anti-erro / anti-timeout:
- *   1. Modelo primário vivo (gemini-3.5-flash-lite — 1-4s em produção)
- *   2. Timeout por call (8s) + prazo global da request (~18s) — SEMPRE
- *      responde JSON antes do maxDuration:30 do Vercel (504)
- *   3. Rotação de chaves: round-robin + failover imediato em 429/401
- *   4. Fallback de modelos se o modelo estiver indisponível (404)
+ * Estratégia:
+ * - Round-robin entre chaves sadias, com failover para outra chave no mesmo modelo.
+ * - Cooldown local por modelo/chave após 429, 5xx, timeout ou resposta vazia.
+ * - Modelos são tentados em sequência quando indisponíveis (404/400/413).
+ * - Prazos globais mantêm a função abaixo do limite de 60s da Vercel.
  *
- * IMPORTANTE (5 chaves): a cota RPM/TPM do Gemini é por PROJETO GCP,
- * não por API key. Chaves do MESMO projeto não multiplicam a cota —
- * crie chaves em projetos GCP distintos para ganho real de throughput.
+ * As cotas do Gemini são avaliadas por projeto GCP. Várias chaves do mesmo
+ * projeto não aumentam a cota; projetos distintos são necessários para
+ * aumentar a capacidade.
  */
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-// Primário: modelo comprovadamente vivo e rápido em produção (~1-4s).
-// gemini-3.6-flash morria/retragava e estourava o budget de 30s → 504.
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const TEXT_DEFAULT_MODEL = "gemini-3-flash-preview";
 
-// Modelos fallback (tentados em ordem se o primário falhar).
-// NÃO incluir gemini-2.0-flash, gemini-2.5-pro nem gemini-2.5-flash-lite —
-// a API retorna 404 "no longer available to new users" e sugere 3.x.
-const FALLBACK_MODELS = [
-  MODEL,
+const DEFAULT_FALLBACK_MODELS = Object.freeze([
+  "gemini-3-flash-preview",
   "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
   "gemini-3.6-flash",
+  "gemini-3.1-flash-lite",
   "gemini-3.1-pro-preview",
-  "gemini-3.1-flash-preview",
-].filter((m, i, a) => a.indexOf(m) === i); // remove duplicados
+]);
 
-const MAX_RETRIES = 1; // tentativas extras por modelo (total = MAX_RETRIES+1)
-const RETRY_DELAY = 1000; // 1s entre retries de último recurso
-const CALL_TIMEOUT_MS = 6_000; // timeout por call ao Gemini (chave ruim aborta rápido)
-const GLOBAL_BUDGET_MS = 26_000; // prazo total da cadeia (vercel.json maxDuration=60)
-const KEY_COOLDOWN_MS = 30_000; // cooldown da chave após 429
-const KEY_ABORT_COOLDOWN_MS = 60_000; // cooldown MAIOR após timeout/abort (chave que trava)
-const MAX_TOTAL_CALLS = 12; // teto absoluto de calls por request
+const REQUEST_LIMITS = Object.freeze({
+  text: { callTimeoutMs: 15_000, budgetMs: 32_000, maxCalls: 6 },
+  // Imagens são mais lentas: a visão medida levou ~26s. O budget deixa
+  // margem para cold start e para o processador antes do limite de 60s.
+  vision: { callTimeoutMs: 30_000, budgetMs: 42_000, maxCalls: 3 },
+});
 
-export { MODEL };
+const RATE_LIMIT_COOLDOWN_MS = 30_000;
+const TIMEOUT_COOLDOWN_MS = 60_000;
 
-/**
- * Carrega todas as chaves Gemini configuradas (round-robin).
- * Formato: GEMINI_API_KEY (1), GEMINI_API_KEY_2.._10 (extras).
- */
+const configuredTextModel = process.env.GEMINI_MODEL || TEXT_DEFAULT_MODEL;
+const configuredVisionModel = process.env.GEMINI_VISION_MODEL || configuredTextModel;
+
+export const MODEL = configuredTextModel;
+
+function safeModel(value) {
+  return typeof value === "string" && /^gemini-[a-z0-9._-]+$/i.test(value.trim());
+}
+
+function uniqueModels(values) {
+  return [...new Set(values.filter(safeModel).map((value) => value.trim()))];
+}
+
+/** Lista de modelos preference customizável, sem expor valores sensíveis. */
+export function geminiModels({ vision = false } = {}) {
+  const primary = vision ? configuredVisionModel : configuredTextModel;
+  const configured = typeof process.env.GEMINI_MODELS === "string"
+    ? process.env.GEMINI_MODELS.split(",").map((value) => value.trim())
+    : [];
+
+  return uniqueModels([primary, ...configured, ...DEFAULT_FALLBACK_MODELS]);
+}
+
+/** Todas as chaves configuradas. A ordenação é preservada e duplicatas são removidas. */
 export function geminiKeys() {
   const keys = [];
-  const k1 = process.env.GEMINI_API_KEY;
-  if (k1 && k1.trim()) keys.push(k1.trim());
-  for (let i = 2; i <= 10; i++) {
-    const k = process.env[`GEMINI_API_KEY_${i}`];
-    if (k && k.trim()) keys.push(k.trim());
+  const primary = process.env.GEMINI_API_KEY;
+  if (typeof primary === "string" && primary.trim()) keys.push(primary.trim());
+
+  for (let index = 2; index <= 10; index++) {
+    const value = process.env[`GEMINI_API_KEY_${index}`];
+    if (typeof value === "string" && value.trim()) keys.push(value.trim());
   }
-  // Remove duplicatas preservando ordem
+
   return [...new Set(keys)];
 }
 
-/** Compat: chave primária (primeira). Usada pelo /api/ai/status. */
+/** Mantido para compatibilidade com integrações que consultam a chave principal. */
 export function geminiKey() {
   return geminiKeys()[0] || "";
 }
 
-// ── Estado de saúde das chaves (in-memory, por instância serverless) ──
-const keyState = new Map(); // key → { cooldownUntil, disabled?, aborts: number }
-let rrIndex = 0; // índice round-robin
-let lastGoodKey = null; // última chave que respondeu 200 (preferência sticky)
+// Estado local por instância. Em serverless, um cold start começa vazio.
+const keyState = new Map();
+let roundRobinIndex = 0;
+let lastGoodKey = null;
 
-function markCooldown(key) {
-  const s = keyState.get(key) || {};
-  s.cooldownUntil = Date.now() + KEY_COOLDOWN_MS;
-  keyState.set(key, s);
+function stateKey(model, key) {
+  return `${model}\u0000${key}`;
 }
 
-function markAbort(key) {
-  // Timeout/abort: chave "pendurou" a call (quota esgotada trava em vez de 429).
-  // Cooldown longo; 3+ aborts seguidos = desativa por enquanto.
-  const s = keyState.get(key) || {};
-  s.aborts = (s.aborts || 0) + 1;
-  s.cooldownUntil = Date.now() + KEY_ABORT_COOLDOWN_MS * s.aborts;
-  keyState.set(key, s);
+function stateFor(model, key) {
+  const id = stateKey(model, key);
+  if (!keyState.has(id)) keyState.set(id, { cooldownUntil: 0, aborts: 0, disabled: false });
+  return keyState.get(id);
 }
 
-function markDisabled(key, reason) {
-  const s = keyState.get(key) || {};
-  s.disabled = true;
-  s.reason = reason;
-  keyState.set(key, s);
+function isHealthy(model, key) {
+  const state = stateFor(model, key);
+  return !state.disabled && state.cooldownUntil <= Date.now();
 }
 
-function markSuccess(key) {
-  const s = keyState.get(key) || {};
-  s.cooldownUntil = 0;
-  s.aborts = 0;
-  keyState.set(key, s);
+function markFailure(model, key, reason) {
+  const state = stateFor(model, key);
+  if (reason === "auth") {
+    state.disabled = true;
+    return;
+  }
+  if (reason === "timeout") {
+    state.aborts += 1;
+    state.cooldownUntil = Date.now() + TIMEOUT_COOLDOWN_MS * Math.min(state.aborts, 3);
+    return;
+  }
+  state.cooldownUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+}
+
+function markSuccess(model, key) {
+  const state = stateFor(model, key);
+  state.cooldownUntil = 0;
+  state.aborts = 0;
   lastGoodKey = key;
 }
 
-function isHealthy(key) {
-  const s = keyState.get(key);
-  if (!s) return true;
-  if (s.disabled) return false;
-  if (s.cooldownUntil && Date.now() < s.cooldownUntil) return false;
-  return true;
-}
-
 /**
- * Escolhe chave: (1) última boa (sticky), se saudável e não excluída;
- * (2) round-robin entre saudáveis; (3) qualquer não-excluída.
+ * Distribui a carga entre chaves saudáveis. Se todas estiverem em cooldown,
+ * usa apenas uma última chave comprovadamente sadia; nunca tenta uma chave já
+ * excluída da request atual.
  */
-function pickKey(keys, exclude) {
-  const usable = (k) => isHealthy(k) && !(exclude && exclude.has(k));
-  if (lastGoodKey && keys.includes(lastGoodKey) && usable(lastGoodKey) && !(exclude && exclude.has(lastGoodKey))) {
+function pickKey(keys, model, failedKeys) {
+  const healthy = keys.filter((key) => isHealthy(model, key) && !failedKeys.has(key));
+  if (healthy.length > 0) {
+    const key = healthy[roundRobinIndex % healthy.length];
+    roundRobinIndex = (roundRobinIndex + 1) % healthy.length;
+    return key;
+  }
+
+  if (lastGoodKey && healthy.length === 0 && isHealthy(model, lastGoodKey) && !failedKeys.has(lastGoodKey)) {
     return lastGoodKey;
   }
-  const healthy = keys.filter(usable);
-  if (healthy.length > 0) {
-    const key = healthy[rrIndex % healthy.length];
-    rrIndex = (rrIndex + 1) % Math.max(healthy.length, 1);
-    return key;
-  }
-  const any = keys.filter((k) => !(exclude && exclude.has(k)));
-  if (any.length > 0) {
-    const key = any[rrIndex % any.length];
-    rrIndex = (rrIndex + 1) % Math.max(any.length, 1);
-    return key;
-  }
+
   return null;
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function isAbortError(error) {
+  return error?.name === "AbortError" || error?.name === "TimeoutError" || error?.code === "ABORT_ERR";
 }
 
-async function callModel(model, key, body) {
-  const url = `${BASE}/${model}:generateContent?key=${key}`;
-  const res = await fetch(url, {
+async function callModel(model, key, body, timeoutMs) {
+  const response = await fetch(`${BASE}/${model}:generateContent?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    // FIX (bug IA): timeout por call — um fetch pendurado matava os 30s do Vercel.
-    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = data?.error?.message || res.statusText;
-    const err = new Error(`Gemini API error ${res.status}: ${msg}`);
-    err.status = res.status;
-    err.retryable = res.status === 429 || res.status === 503;
-    err.body = data;
-    throw err;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error("Gemini request failed");
+    error.status = response.status;
+    throw error;
   }
 
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const content = parts.map((p) => p.text || "").join("");
+  const content = (data?.candidates?.[0]?.content?.parts || [])
+    .map((part) => part.text || "")
+    .join("");
+
+  if (!content.trim()) {
+    const error = new Error("Gemini returned an empty response");
+    error.status = 502;
+    throw error;
+  }
+
   return { content, model };
 }
 
-/** Alguns modelos rejeitam thinkingConfig/400 — remove e tenta de novo. */
 function stripUnsupportedConfig(body) {
-  const g = { ...(body.generationConfig || {}) };
-  delete g.thinkingConfig;
-  return { ...body, generationConfig: g };
+  const generationConfig = { ...(body.generationConfig || {}) };
+  delete generationConfig.thinkingConfig;
+  return { ...body, generationConfig };
 }
 
 /**
- * Envia conversa ao Gemini com:
- * - rotação de chaves (round-robin + failover 429/401)
- * - fallback de modelos
- * - prazo global para nunca estourar o maxDuration do Vercel.
+ * Envia uma solicitação ao Gemini, alternando chaves e modelos conforme o erro.
+ * operation = "text" | "vision".
  */
 export async function aiChat({
   system,
@@ -183,26 +194,30 @@ export async function aiChat({
   maxTokens = 800,
   temperature = 0.5,
   json = false,
+  operation = imageBase64 ? "vision" : "text",
 } = {}) {
   const keys = geminiKeys();
-  if (keys.length === 0) throw new Error("GEMINI_API_KEY não configurada");
+  if (keys.length === 0) {
+    const error = new Error("GEMINI_API_KEY não configurada");
+    error.status = 503;
+    throw error;
+  }
 
+  const mode = operation === "vision" ? "vision" : "text";
+  const limits = REQUEST_LIMITS[mode];
   const startedAt = Date.now();
-  const deadline = startedAt + GLOBAL_BUDGET_MS;
+  const deadline = startedAt + limits.budgetMs;
 
-  // Monta contents no formato Gemini
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+  const contents = messages.map((message) => ({
+    role: message.role === "assistant" ? "model" : "user",
+    parts: [{ text: message.content }],
   }));
 
   if (imageBase64) {
-    const lastUser = [...contents].reverse().find((c) => c.role === "user");
-    if (lastUser) {
-      lastUser.parts.push({
-        inline_data: { mime_type: imageMime, data: imageBase64 },
-      });
-    }
+    const lastUserMessage = [...contents].reverse().find((message) => message.role === "user");
+    lastUserMessage?.parts.push({
+      inline_data: { mime_type: imageMime, data: imageBase64 },
+    });
   }
 
   const body = {
@@ -210,157 +225,85 @@ export async function aiChat({
     generationConfig: {
       maxOutputTokens: maxTokens,
       temperature,
-      thinkingConfig: { thinkingBudget: 0 }, // desativa thinking (economiza tokens)
+      thinkingConfig: { thinkingBudget: 0 },
       ...(json ? { responseMimeType: "application/json" } : {}),
     },
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
   };
 
-  // Chaves que já falharam NESTA request (evita loop na mesma)
-  const triedKeys = new Set();
   const tried = [];
-  let lastErr;
+  let lastStatus = null;
   let totalCalls = 0;
-  let allKeysDisabled = false;
 
-  // Modelo-externo × chave-interno: 404 = problema do modelo (pula modelo),
-  // 429/401 = problema da chave (troca chave, mesmo modelo).
-  for (const model of FALLBACK_MODELS) {
-    if (Date.now() >= deadline || totalCalls >= MAX_TOTAL_CALLS) break;
-    if (allKeysDisabled) break;
+  for (const model of geminiModels({ vision: mode === "vision" })) {
+    if (Date.now() >= deadline || totalCalls >= limits.maxCalls) break;
 
-    let bodyTry = body;
-    let stripped = false;
-    let keyHops = 0; // trocas de chave neste modelo (evita loop infinito)
-    const maxKeyHops = keys.length; // no máximo 1 volta pelas chaves
+    const failedKeys = new Set();
+    let bodyToTry = body;
+    let configWasStripped = false;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES + 1; attempt++) {
-      if (Date.now() >= deadline || totalCalls >= MAX_TOTAL_CALLS) break;
+    // +1 permite uma tentativa extra apenas para remover thinkingConfig.
+    for (let attempt = 0; attempt <= keys.length; attempt++) {
+      if (Date.now() >= deadline || totalCalls >= limits.maxCalls) break;
 
-      // Escolhe chave a cada tentativa (round-robin / pula cooldown)
-      let key = pickKey(keys, triedKeys);
-      if (!key) {
-        // Todas as chaves excluídas nesta request → limpa e tenta de novo
-        triedKeys.clear();
-        key = pickKey(keys);
-      }
+      const key = pickKey(keys, model, failedKeys);
       if (!key) break;
 
       totalCalls++;
       try {
-        const ok = await callModel(model, key, bodyTry);
-        markSuccess(key);
-        return ok;
-      } catch (err) {
-        lastErr = err;
-        const keyIdx = keys.indexOf(key) + 1;
-        tried.push(`${model}:k${keyIdx}:${err.status ?? "net"}`);
+        const result = await callModel(model, key, bodyToTry, limits.callTimeoutMs);
+        markSuccess(model, key);
+        return result;
+      } catch (error) {
+        const timedOut = isAbortError(error);
+        const status = timedOut ? 0 : Number(error.status) || 0;
+        lastStatus = status;
+        const keyIndex = keys.indexOf(key) + 1;
+        tried.push(`${model}:k${keyIndex}:${timedOut ? "timeout" : status || "network"}`);
 
-        // AbortError/timeout da rede → trata como retryable (não é status HTTP)
-        const isAbort = err.name === "AbortError" || err.name === "TimeoutError";
-        const status = isAbort ? 0 : err.status;
-
-        // 400 com thinkingConfig → remove config e tenta o MESMO modelo
-        if (!stripped && status === 400) {
-          bodyTry = stripUnsupportedConfig(body);
-          stripped = true;
-          attempt = -1;
+        // Alguns modelos rejeitam thinkingConfig; uma única remoção e nova tentativa.
+        if (status === 400 && !configWasStripped && body.generationConfig?.thinkingConfig) {
+          bodyToTry = stripUnsupportedConfig(body);
+          configWasStripped = true;
           continue;
         }
 
-        // ── Problema da CHAVE → troca chave, mesmo modelo, sem sleep ──
-        // 429: rate limit desta chave/project → cooldown + próxima chave
-        // 401/403: chave inválida → disable permanente (instância)
-        // abort/timeout: chave travou (quota esgotada trava em vez de 429 nestas keys)
-        // 500/503 com keys que "penduram" também = tratar como problema de chave
-        const keyProblem = status === 429 || status === 401 || status === 403 || isAbort || status === 500 || status === 503;
-        if (keyProblem) {
-          if (status === 401 || status === 403) {
-            markDisabled(key, `http_${status}`);
-          } else if (status === 429) {
-            markCooldown(key);
-          } else if (isAbort) {
-            markAbort(key);
-          } else {
-            // 500/503: cooldown moderado — modelo sob demanda pode ser temporário,
-            // mas para chaves que penduram, evita ficar preso no loop.
-            const s = keyState.get(key) || {};
-            s.cooldownUntil = Date.now() + 5_000;
-            keyState.set(key, s);
-          }
-          triedKeys.add(key);
+        // Erros do modelo ou do pedido: próximo modelo, sem repetir outra chave.
+        if (status === 404 || status === 400 || status === 413) break;
 
-          const next = pickKey(keys, triedKeys);
-          if (next && keyHops < maxKeyHops) {
-            keyHops++;
-            attempt = -1; // troca de chave não conta como retry do modelo
-            continue; // MESMO modelo, NOVA chave, SEM sleep
-          }
-          // Sem chave livre → sai para o próximo modelo
-          if (keys.every((k) => !isHealthy(k) && triedKeys.has(k))) {
-            allKeysDisabled = keys.every((k) => {
-              const s = keyState.get(k);
-              return s && s.disabled;
-            });
-          }
-          break;
-        }
-
-        // ── Problema do MODELO → próximo fallback (sem retry) ──
-        // 404 / 400 residual / 413 / erros não-retryable
-        const tryNextModel =
-          status === 404 ||
-          (status === 400 && stripped) ||
-          status === 413 ||
-          (!err.retryable && !isAbort);
-        if (tryNextModel) break;
-
-        // 503 etc retryable → backoff curto e retry (último recurso)
-        if (attempt < MAX_RETRIES) {
-          const wait = RETRY_DELAY * (attempt + 1);
-          if (Date.now() + wait >= deadline) break; // não estoura o budget
-          await sleep(wait);
-        }
+        failedKeys.add(key);
+        if (status === 401 || status === 403) markFailure(model, key, "auth");
+        else if (timedOut) markFailure(model, key, "timeout");
+        else markFailure(model, key, "rate");
       }
     }
-    // Modelo falhou, tenta o próximo fallback
   }
 
-  if (allKeysDisabled && keys.length > 1) {
-    const e = new Error("Todas as chaves Gemini estão indisponíveis. Verifique as env vars GEMINI_API_KEY_*.");
-    e.status = 502;
-    throw e;
-  }
+  const elapsed = Date.now() - startedAt;
+  const error = new Error("A IA está temporariamente indisponível. Tente novamente em alguns instantes.");
+  error.status = 503;
+  error.publicMessage = elapsed >= limits.budgetMs - 250
+    ? "A IA demorou para responder. Tente novamente em alguns instantes."
+    : "A IA está temporariamente indisponível. Tente novamente em alguns instantes.";
 
-  if (lastErr) {
-    const elapsed = Date.now() - startedAt;
-    const detail = `${lastErr.message || lastErr} [tried: ${tried.join(", ")} | ${elapsed}ms | ${totalCalls} calls]`;
-    // Timeout global → erro amigável em vez de estourar o Vercel
-    if (elapsed >= GLOBAL_BUDGET_MS - 100) {
-      const e = new Error("IA demorou para responder. Tente novamente.");
-      e.status = 504;
-      e.original = detail;
-      throw e;
-    }
-    // NÃO atribuir lastErr.message — Error.message é getter-only em alguns runtimes
-    const e = new Error(detail);
-    e.status = lastErr.status || 500;
-    e.retryable = lastErr.retryable;
-    e.payload = lastErr.payload;
-    throw e;
-  }
-  throw new Error("Falha na IA");
+  // Não registra conteúdo da resposta nem chaves. Apenas o diagnóstico seguro.
+  console.warn("[gemini] request failed", {
+    operation: mode,
+    elapsedMs: elapsed,
+    calls: totalCalls,
+    lastStatus,
+    tried,
+  });
+  throw error;
 }
 
-/**
- * Extrai JSON válido de uma resposta (mesmo com texto ao redor).
- */
+/** Extrai o primeiro objeto JSON de uma resposta possivelmente acompanhada de texto. */
 export function parseAiJson(content) {
   try {
-    const s = content.indexOf("{");
-    const e = content.lastIndexOf("}");
-    if (s === -1 || e === -1 || e <= s) return null;
-    return JSON.parse(content.slice(s, e + 1));
+    const start = content.indexOf("{");
+    const end = content.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) return null;
+    return JSON.parse(content.slice(start, end + 1));
   } catch {
     return null;
   }

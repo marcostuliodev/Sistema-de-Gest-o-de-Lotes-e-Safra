@@ -9,7 +9,7 @@
  * Otimizações de tokens:
  * - Imagem comprimida para max 1024x1024 JPEG 80% antes do envio
  * - System prompts encurtados (~60% menores)
- * - maxTokens reduzido (800 para foto, 600 para chat)
+ * - Limites de output: 2048 tokens para chat, 1200 para análise de imagem
  * - Cache de análise por hash de imagem (evita re-analisar mesma foto)
  */
 
@@ -21,12 +21,14 @@ import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
-import { aiChat, parseAiJson, MODEL, geminiKey, geminiKeys } from "../gemini.js";
+import { aiChat, parseAiJson, geminiKeys, geminiModels } from "../gemini.js";
 
 const router = Router();
 router.use(authMiddleware);
 
-const IS_PROD = process.env.NODE_ENV === "production";
+// O Vercel pode ter NODE_ENV development configurado; presence do runtime
+// ainda exige os limites e a postura de produção.
+const IS_PROD = process.env.NODE_ENV === "production" || !!process.env.VERCEL;
 
 // VULN-006: rate limit por IP nas rotas de IA (independente de index.js)
 const aiLimiter = rateLimit({
@@ -228,7 +230,9 @@ async function incrUsage(userId) {
 
 function sendError(res, err) {
   const status = err?.status || 500;
-  return res.status(status).json({ error: err?.message || "Erro interno", ...(err?.payload || {}) });
+  // Erros 5xx podem conter detalhes de infraestrutura; nunca são enviados ao cliente.
+  const message = err?.publicMessage || (status < 500 ? err?.message : "Erro interno");
+  return res.status(status).json({ error: message, ...(err?.payload || {}) });
 }
 
 // ── GET /api/ai/usage ─────────────────────────────────────────────────
@@ -274,6 +278,7 @@ router.post("/chat", asyncHandler(async (req, res) => {
       messages: clean,
       maxTokens: 2048,
       temperature: 0.7,
+      operation: "text",
     });
 
     await incrUsage(req.user.uid);
@@ -427,6 +432,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       maxTokens: 1200,
       temperature: 0.3,
       json: true,
+      operation: "vision",
     });
 
     const analysis = parseAiJson(content) || {
@@ -459,14 +465,18 @@ router.post("/analyze", asyncHandler(async (req, res) => {
 
 router.get("/status", (_req, res) => {
   const keys = geminiKeys();
+  const textModels = geminiModels();
+  const visionModels = geminiModels({ vision: true });
   res.json({
     configured: keys.length > 0,
-    keyCount: keys.length, // quantas chaves Gemini configuradas (rotação)
-    model: MODEL,
+    keyCount: keys.length,
+    model: textModels[0],
+    visionModel: visionModels[0],
+    fallbackModels: textModels.slice(1),
     optimizations: {
       imageCompression: "1024x1024 JPEG 80%",
       cache: "24h por hash de imagem",
-      maxTokens: { chat: 600, analyze: 800 },
+      maxTokens: { chat: 2048, analyze: 1200 },
     },
   });
 });
