@@ -1,59 +1,105 @@
 /**
- * Assistente de IA (Groq) — orquídeas e plantações.
+ * Assistente de IA (Google Gemini) — orquídeas e plantações.
  *
- * POST /api/ai/chat     — conversa em texto (histórico do cliente)
+ * POST /api/ai/chat     — conversa em texto
  * POST /api/ai/analyze  — análise de imagem (multipart: campo "photo")
  * GET  /api/ai/usage    — uso diário do usuário
+ * GET  /api/ai/status   — status da configuração
  *
- * Limite diário por plano (features.maxIaDia), controlado na collection ai_usage.
+ * Otimizações de tokens:
+ * - Imagem comprimida para max 1024x1024 JPEG 80% antes do envio
+ * - System prompts encurtados (~60% menores)
+ * - maxTokens reduzido (800 para foto, 600 para chat)
+ * - Cache de análise por hash de imagem (evita re-analisar mesma foto)
  */
 
 import { Router } from "express";
+import { createHash } from "crypto";
+import sharp from "sharp";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { getPlanFeatures } from "../plans.js";
-import { groqChat, parseAiJson, MODEL, groqKey } from "../groq.js";
+import { aiChat, parseAiJson, MODEL, geminiKey } from "../gemini.js";
 
 const router = Router();
 router.use(authMiddleware);
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_CHAT_MESSAGES = 20;
-const MAX_CONTENT_CHARS = 4000;
+const MAX_CHAT_MESSAGES = 15;
+const MAX_CONTENT_CHARS = 3000;
 
-const SYSTEM_PROMPT = `Você é o AgroIA, assistente agrícola do Agrolote, especialista em orquídeas e plantações em geral (hortaliças, frutas, flores, cultivo em vaso e campo).
+// ── System prompts (encurtados para economizar tokens) ────────────────
 
-Regras:
-- Responda SEMPRE em português do Brasil, de forma clara e prática.
-- Para orquídeas: considere gênero (Phalaenopsis, Cattleya, Dendrobium, Oncidium, Vanda, Miltonia etc.), substrato, irrigação, adubação, luminosidade, umidade, fase de floração e pragas comuns (cochinilha, cochonilha, ácaros, fungos).
-- Para plantações em geral: considere solo, clima, irrigação, adubação, pragas e doenças, calendário de plantio e boas práticas.
-- Sempre que útil, indique ações concretas (o que fazer, quanto, com que frequência).
-- Se não tiver certeza, diga honestamente e sugira o que observar.
-- Nunca invente números de doses de defensivos sem contexto; quando citar dosagens, indique para o produtor confirmar no rótulo do produto.
-- Não responda a pedidos alheios ao agronegócio, orquídeas ou plantas.`;
+const SYSTEM_PROMPT = `Você é o AgroIA, assistente agrícola do Agrolote. Responda SEMPRE em português do Brasil, de forma clara e prática.
 
-const ANALYZE_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+Orquídeas: considere gênero, substrato, rega, adubação, luz, pragas (cochinilha, ácaros, fungos).
+Plantas: solo, clima, irrigação, pragas, calendário de plantio.
+Indique ações concretas. Se não tiver certeza, diga honestamente. Nunca invente doses de defensivos sem contexto.
 
-Você receberá uma foto de uma planta/orquídeas e DEVE responder APENAS com um objeto JSON válido (sem texto fora do JSON) com exatamente esta estrutura:
+Não responda assuntos fora do agronegócio, orquídeas ou plantas.`;
+
+const ANALYZE_SYSTEM_PROMPT = `Analise a foto e responda APENAS com JSON válido (sem texto fora):
 {
-  "resumo": "análise objetiva da imagem em 1-3 frases",
-  "identificacao": {
-    "especie": "nome comum e científico se possível, ou 'Não identificada'",
-    "confianca": "alta" | "media" | "baixa"
-  },
-  "saude": "saudavel" | "atencao" | "doente",
-  "problemas": [
-    { "nome": "ex: Mancha fúngica", "severidade": "baixa" | "media" | "alta", "descricao": "o que foi observado" }
-  ],
-  "cuidados": ["ação prática 1", "ação prática 2"],
-  "rega": "orientação de rega específica",
+  "resumo": "1-3 frases objetivas",
+  "identificacao": {"especie": "nome comum/científico ou 'Não identificada'", "confianca": "alta|media|baixa"},
+  "saude": "saudavel|atencao|doente",
+  "problemas": [{"nome": "ex: Mancha fúngica", "severidade": "baixa|media|alta", "descricao": "o que viu"}],
+  "cuidados": ["ação prática"],
+  "rega": "orientação de rega",
   "adubacao": "orientação de adubação",
   "luminosidade": "orientação de luz",
-  "substrato": "orientação de substrato/vaso (aplica-se)"
+  "substrato": "orientação de substrato"
 }
-Se a imagem não for de uma planta, retorne o mesmo JSON com resumo explicando isso, especie "Não identificada", saude "atencao", problemas [] e listas vazias.`;
+Se não for planta: especie "Não identificada", saude "atencao", problemas [], cuidados [].`;
+
+// ── Cache de análise (evita re-analisar mesma foto) ───────────────────
+
+const analysisCache = new Map(); // hash → { result, ts }
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+function cacheKey(buffer, question) {
+  return createHash("sha256")
+    .update(buffer)
+    .update(question || "")
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function getCached(key) {
+  const entry = analysisCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) {
+    analysisCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCache(key, result) {
+  if (analysisCache.size > 500) {
+    // limpa entradas mais antigas
+    const oldest = [...analysisCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (let i = 0; i < 100; i++) analysisCache.delete(oldest[i][0]);
+  }
+  analysisCache.set(key, { result, ts: Date.now() });
+}
+
+// ── Compressão de imagem (economia de ~70% tokens) ────────────────────
+
+async function compressImage(buffer) {
+  try {
+    const compressed = await sharp(buffer)
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80, progressive: true })
+      .toBuffer();
+    return compressed;
+  } catch {
+    // se falhar, usa original
+    return buffer;
+  }
+}
 
 // ── Uso diário ────────────────────────────────────────────────────────
 
@@ -145,10 +191,10 @@ router.post("/chat", asyncHandler(async (req, res) => {
 
     const usage = await checkAiLimit(req.user.uid);
 
-    const { content, model } = await groqChat({
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...clean],
-      model: MODEL,
-      maxTokens: 1200,
+    const { content, model } = await aiChat({
+      system: SYSTEM_PROMPT,
+      messages: clean,
+      maxTokens: 600,
       temperature: 0.5,
     });
 
@@ -163,7 +209,7 @@ router.post("/chat", asyncHandler(async (req, res) => {
   }
 }));
 
-// ── Multipart parser (mesmo padrão do photos.js) ──────────────────────
+// ── Multipart parser ──────────────────────────────────────────────────
 
 function splitBuffer(buffer, delimiter) {
   const parts = [];
@@ -250,32 +296,40 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       ? fields.question.trim().slice(0, 500)
       : "";
 
+    // Verifica cache antes de gastar tokens
+    const cKey = cacheKey(file.buffer, question);
+    const cached = getCached(cKey);
+    if (cached) {
+      const usage = await getUsage(req.user.uid);
+      return res.json({
+        ...cached,
+        cached: true,
+        usage,
+      });
+    }
+
     const usage = await checkAiLimit(req.user.uid);
 
-    const dataUrl = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-    const userText = question
-      ? `Analise esta foto de planta/orquídea considerando esta pergunta do produtor: "${question}". Responda com o JSON solicitado.`
-      : "Analise esta foto de planta/orquídea e responda com o JSON solicitado.";
+    // Comprime imagem para economizar tokens
+    const compressed = await compressImage(file.buffer);
+    const imageBase64 = compressed.toString("base64");
 
-    const { content, model } = await groqChat({
-      model: MODEL,
-      json: true,
-      maxTokens: 1500,
+    const userText = question
+      ? `Analise esta foto. Pergunta do produtor: "${question}". Responda com o JSON.`
+      : "Analise esta foto e responda com o JSON.";
+
+    const { content, model } = await aiChat({
+      system: ANALYZE_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userText }],
+      imageBase64,
+      imageMime: "image/jpeg",
+      maxTokens: 800,
       temperature: 0.3,
-      messages: [
-        { role: "system", content: ANALYZE_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            { type: "image_url", image_url: { url: dataUrl } },
-          ],
-        },
-      ],
+      json: true,
     });
 
     const analysis = parseAiJson(content) || {
-      resumo: content.slice(0, 600),
+      resumo: content.slice(0, 400),
       identificacao: { especie: "Não identificada", confianca: "baixa" },
       saude: "atencao",
       problemas: [],
@@ -286,10 +340,12 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       substrato: "",
     };
 
+    const result = { analysis, model };
+    setCache(cKey, result);
+
     await incrUsage(req.user.uid);
     res.json({
-      analysis,
-      model,
+      ...result,
       usage: { used: usage.used + 1, limit: usage.limit, plan: usage.plan },
     });
   } catch (err) {
@@ -301,8 +357,13 @@ router.post("/analyze", asyncHandler(async (req, res) => {
 
 router.get("/status", (_req, res) => {
   res.json({
-    configured: !!groqKey(),
+    configured: !!geminiKey(),
     model: MODEL,
+    optimizations: {
+      imageCompression: "1024x1024 JPEG 80%",
+      cache: "24h por hash de imagem",
+      maxTokens: { chat: 600, analyze: 800 },
+    },
   });
 });
 
