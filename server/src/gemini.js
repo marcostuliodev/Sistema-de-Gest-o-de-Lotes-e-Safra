@@ -37,8 +37,8 @@ const FALLBACK_MODELS = [
 
 const MAX_RETRIES = 1; // tentativas extras por modelo (total = MAX_RETRIES+1)
 const RETRY_DELAY = 1000; // 1s entre retries de último recurso
-const CALL_TIMEOUT_MS = 7_000; // timeout por call ao Gemini (chave ruim aborta rápido)
-const GLOBAL_BUDGET_MS = 18_000; // prazo total da cadeia (Vercel mata aos 30s)
+const CALL_TIMEOUT_MS = 6_000; // timeout por call ao Gemini (chave ruim aborta rápido)
+const GLOBAL_BUDGET_MS = 26_000; // prazo total da cadeia (vercel.json maxDuration=60)
 const KEY_COOLDOWN_MS = 30_000; // cooldown da chave após 429
 const KEY_ABORT_COOLDOWN_MS = 60_000; // cooldown MAIOR após timeout/abort (chave que trava)
 const MAX_TOTAL_CALLS = 12; // teto absoluto de calls por request
