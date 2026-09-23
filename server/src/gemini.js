@@ -307,16 +307,22 @@ export async function aiChat({
 
   if (lastErr) {
     const elapsed = Date.now() - startedAt;
-    lastErr.message = `${lastErr.message} [tried: ${tried.join(", ")} | ${elapsed}ms | ${totalCalls} calls]`;
+    const detail = `${lastErr.message || lastErr} [tried: ${tried.join(", ")} | ${elapsed}ms | ${totalCalls} calls]`;
     // Timeout global → erro amigável em vez de estourar o Vercel
     if (elapsed >= GLOBAL_BUDGET_MS - 100) {
       const e = new Error("IA demorou para responder. Tente novamente.");
       e.status = 504;
-      e.original = lastErr.message;
+      e.original = detail;
       throw e;
     }
+    // NÃO atribuir lastErr.message — Error.message é getter-only em alguns runtimes
+    const e = new Error(detail);
+    e.status = lastErr.status || 500;
+    e.retryable = lastErr.retryable;
+    e.payload = lastErr.payload;
+    throw e;
   }
-  throw lastErr || new Error("Falha na IA");
+  throw new Error("Falha na IA");
 }
 
 /**
