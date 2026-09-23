@@ -1,10 +1,11 @@
 import { Router } from "express";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { v4 as uuid } from "uuid";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { sanitizeRow } from "../validation.js";
+import { sanitizeRow, passwordSchema } from "../validation.js";
 import { getPlanFeatures } from "../plans.js";
 
 const router = Router();
@@ -12,7 +13,7 @@ router.use(authMiddleware);
 
 // POST /api/collaborators/invite - Invite a collaborator
 router.post("/invite", asyncHandler(async (req, res) => {
-  const { email, role } = req.body || {};
+  const { email, role, password } = req.body || {};
 
   if (!email || typeof email !== "string") {
     return res.status(400).json({ error: "Email obrigatorio" });
@@ -24,9 +25,15 @@ router.post("/invite", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Role invalida. Use 'admin' ou 'viewer'" });
   }
 
+  // Validate password (required for new accounts)
+  const parsedPass = passwordSchema.safeParse(password);
+  if (!parsedPass.success) {
+    return res.status(400).json({ error: parsedPass.error.issues[0]?.message || "Senha invalida" });
+  }
+
   // Check if user is trying to invite themselves
   const usersCol = await col("users");
-  const invitedUser = await usersCol.findOne({ email: normalizedEmail });
+  const invitedUser = await usersCol.findOne({ email: { $regex: new RegExp("^" + normalizedEmail + "$", "i") } });
   if (invitedUser && invitedUser._id === req.user.uid) {
     return res.status(400).json({ error: "Voce nao pode convidar a si mesmo" });
   }
@@ -71,13 +78,30 @@ router.post("/invite", asyncHandler(async (req, res) => {
     return res.status(409).json({ error: "Este usuario ja foi convidado ou e colaborador" });
   }
 
+  // Create collaborator account if it doesn't exist
+  let userId = invitedUser?._id || null;
+  if (!invitedUser) {
+    const newUserId = uuid();
+    const hash = await bcrypt.hash(parsedPass.data, 10);
+    await usersCol.insertOne({
+      _id: newUserId,
+      id: newUserId,
+      name: normalizedEmail.split("@")[0],
+      email: normalizedEmail,
+      password_hash: hash,
+      email_verified: true,
+      created_at: new Date().toISOString(),
+    });
+    userId = newUserId;
+  }
+
   const id = uuid();
   const inviteToken = crypto.randomBytes(32).toString("hex");
   const doc = {
     _id: id,
     id,
     owner_id: req.user.uid,
-    user_id: invitedUser?._id || null,
+    user_id: userId,
     email: normalizedEmail,
     role,
     status: "pending",
@@ -91,9 +115,7 @@ router.post("/invite", asyncHandler(async (req, res) => {
   const owner = await usersCol.findOne({ _id: req.user.uid });
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const APP_URL = process.env.APP_URL || "https://agrolote.marcostuliogc.com.br";
-  const hasAccount = !!invitedUser;
-  const inviteUrl = hasAccount ? `${APP_URL}/colaboradores` : `${APP_URL}/login`;
-  const ctaText = hasAccount ? "Aceitar convite" : "Criar conta e aceitar";
+  const inviteUrl = `${APP_URL}/login`;
   const roleLabel = role === "admin" ? "Administrador" : "Visualizador";
 
   if (RESEND_API_KEY) {
@@ -119,15 +141,19 @@ router.post("/invite", asyncHandler(async (req, res) => {
             <p style="color: #57534e; font-size: 14px;">
               Papel: <strong>${roleLabel}</strong>
             </p>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="color: #166534; font-size: 14px; margin: 0 0 8px 0;"><strong>Suas credenciais:</strong></p>
+              <p style="color: #166534; font-size: 14px; margin: 0;">E-mail: <strong>${normalizedEmail}</strong></p>
+              <p style="color: #166534; font-size: 14px; margin: 4px 0 0 0;">Senha: <strong>${password}</strong></p>
+            </div>
             <div style="text-align: center; margin: 32px 0;">
               <a href="${inviteUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-                ${ctaText}
+                Entrar no Agrolote
               </a>
             </div>
-            ${hasAccount
-              ? `<p style="color: #57534e; font-size: 14px;">Faça login com o e-mail <strong>${normalizedEmail}</strong> e aceite o convite na página Colaboradores.</p>`
-              : `<p style="color: #57534e; font-size: 14px;">Você ainda não tem conta. Crie sua conta usando o e-mail <strong>${normalizedEmail}</strong> e o convite será aceito automaticamente.</p>`
-            }
+            <p style="color: #57534e; font-size: 14px;">
+              Faça login com as credenciais acima e aceite o convite na página Colaboradores.
+            </p>
             <p style="color: #a8a29e; font-size: 12px; text-align: center;">
               Se você não esperava este convite, ignore este e-mail.
             </p>

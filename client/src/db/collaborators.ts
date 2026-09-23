@@ -25,10 +25,10 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
   return fetch(path, { ...options, headers, credentials: "include" });
 }
 
-export async function inviteCollaborator(email: string, role: string): Promise<Collaborator> {
+export async function inviteCollaborator(email: string, role: string, password: string): Promise<Collaborator> {
   const res = await request("/api/collaborators/invite", {
     method: "POST",
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify({ email, role, password }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Erro ao convidar colaborador");

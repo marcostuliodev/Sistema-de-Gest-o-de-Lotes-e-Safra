@@ -21,6 +21,7 @@ export default function Colaboradores() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"admin" | "viewer">("viewer");
+  const [invitePassword, setInvitePassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -54,9 +55,10 @@ export default function Colaboradores() {
     setError("");
 
     try {
-      await inviteCollaborator(inviteEmail, inviteRole);
+      await inviteCollaborator(inviteEmail, inviteRole, invitePassword);
       setInviteEmail("");
       setInviteRole("viewer");
+      setInvitePassword("");
       setShowInviteModal(false);
       await loadData();
     } catch (err) {
@@ -262,8 +264,18 @@ export default function Colaboradores() {
               <option value="admin">Admin (leitura e escrita)</option>
             </Select>
           </Field>
+          <Field label="Senha do colaborador" required hint="Minimo 6 caracteres">
+            <TextInput
+              type="password"
+              placeholder="Senha para o colaborador"
+              value={invitePassword}
+              onChange={(e) => setInvitePassword(e.target.value)}
+              required
+              minLength={6}
+            />
+          </Field>
           <p className="text-xs text-stone-400">
-            O colaborador recebera um convite e podera acessar seus dados conforme a funcao definida.
+            O colaborador recebera um email com as credenciais e podera acessar seus dados conforme a funcao definida.
           </p>
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
