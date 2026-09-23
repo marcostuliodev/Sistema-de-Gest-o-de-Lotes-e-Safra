@@ -226,7 +226,7 @@ router.post("/chat", asyncHandler(async (req, res) => {
     const { content, model } = await aiChat({
       system: SYSTEM_PROMPT,
       messages: clean,
-      maxTokens: 1000,
+      maxTokens: 2048,
       temperature: 0.7,
     });
 

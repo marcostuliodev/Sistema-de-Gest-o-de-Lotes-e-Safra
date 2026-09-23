@@ -91,6 +91,7 @@ export async function aiChat({
     generationConfig: {
       maxOutputTokens: maxTokens,
       temperature,
+      thinkingConfig: { thinkingBudget: 0 }, // desativa thinking (economiza tokens)
       ...(json ? { responseMimeType: "application/json" } : {}),
     },
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
