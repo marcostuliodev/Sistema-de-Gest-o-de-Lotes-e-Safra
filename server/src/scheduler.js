@@ -25,7 +25,7 @@ export async function logCronKey() {
   const base = process.env.PUBLIC_URL || "https://agrolote.marcostuliogc.com.br";
   const masked = key && key.length > 4 ? "****" + key.slice(-4) : "****";
   console.log(`[cron] CRON_KEY em uso: ${masked} (valor completo disponível no painel da Render / env CRON_KEY)`);
-  console.log(`[cron] Agende o push 24/7 com: GET ${base}/api/cron/weather?key=<CRON_KEY>`);
+  console.log(`[cron] Agende o push 24/7 com GET ${base}/api/cron/weather usando o header x-cron-key: <CRON_KEY> (sem logar a chave)`);
 }
 
 export async function runWeatherChecks() {

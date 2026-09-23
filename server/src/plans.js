@@ -54,6 +54,8 @@ export const PLANS = Object.freeze({
   }),
 });
 
+export const PLAN_KEYS = Object.keys(PLANS);
+
 /**
  * Preços em centavos (evita problemas de ponto flutuante).
  * monthly: cobrança recorrente mensal.
@@ -80,12 +82,15 @@ export const STRIPE_PRICE_IDS = Object.freeze({
 
 /** Retorna os limites para um plano; fallback = free. */
 export function getPlanFeatures(plan) {
-  return PLANS[plan] || PLANS.free;
+  if (typeof plan === "string" && Object.hasOwn(PLANS, plan)) {
+    return PLANS[plan];
+  }
+  return PLANS.free;
 }
 
 /** Verifica se o plano é válido (existe na definição). */
 export function isValidPlan(plan) {
-  return plan in PLANS;
+  return typeof plan === "string" && Object.hasOwn(PLANS, plan);
 }
 
 /** Retorna preço formatado em reais. */

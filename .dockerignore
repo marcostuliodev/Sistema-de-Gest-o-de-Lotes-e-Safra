@@ -6,3 +6,13 @@ server/data
 .git
 *.log
 .env
+.env.*
+*.env
+**/.env
+**/.env.*
+**/*.env
+**/.env.local
+atlas-credentials.env
+**/atlas-credentials.env
+.vercel
+**/.vercel

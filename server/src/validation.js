@@ -16,7 +16,7 @@ export const emailSchema = z
 
 export const passwordSchema = z
   .string()
-  .min(6, "Senha deve ter no minimo 6 caracteres")
+  .min(8, "Senha deve ter no minimo 8 caracteres")
   .max(200);
 
 export const nameSchema = z

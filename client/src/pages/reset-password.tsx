@@ -32,8 +32,8 @@ export default function ResetPassword() {
       setError("As senhas não coincidem");
       return;
     }
-    if (password.length < 6) {
-      setError("A senha deve ter pelo menos 6 caracteres");
+    if (password.length < 8) {
+      setError("A senha deve ter pelo menos 8 caracteres");
       return;
     }
     setBusy(true);
@@ -152,14 +152,14 @@ export default function ResetPassword() {
                 Crie uma nova senha para sua conta.
               </p>
               <Form onSubmit={(e) => void submit(e)}>
-                <Field label="Nova senha" required hint="Mínimo 6 caracteres">
+                <Field label="Nova senha" required hint="Mínimo 8 caracteres">
                   <TextInput
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••"
                     required
-                    minLength={6}
+                    minLength={8}
                   />
                 </Field>
                 <Field label="Confirmar senha" required>
@@ -169,7 +169,7 @@ export default function ResetPassword() {
                     onChange={(e) => setConfirm(e.target.value)}
                     placeholder="••••••"
                     required
-                    minLength={6}
+                    minLength={8}
                   />
                 </Field>
                 {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}

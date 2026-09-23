@@ -61,11 +61,12 @@ const doLogin = async (email: string, pass: string) => {
     await prepareFreshStore(s.user.id);
     await pullServer().catch(() => undefined);
   };
+  // Register NÃO cria sessão (sem cookie no body) — o fluxo de UI de cadastro
+  // é login.tsx, que mostra a tela genérica e manda o usuário logar depois.
   const doRegister = async (name: string, email: string, pass: string): Promise<AuthSession> => {
     const s = await register(name, email, pass);
-    setSessionState(s);
-    await prepareFreshStore(s.user.id);
-    await pullServer().catch(() => undefined);
+    setSession(null);
+    setSessionState(null);
     return s;
   };
   const doLogout = () => {

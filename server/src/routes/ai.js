@@ -14,6 +14,7 @@
  */
 
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { createHash } from "crypto";
 import sharp from "sharp";
 import { col } from "../db.js";
@@ -25,7 +26,21 @@ import { aiChat, parseAiJson, MODEL, geminiKey } from "../gemini.js";
 const router = Router();
 router.use(authMiddleware);
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
+// VULN-006: rate limit por IP nas rotas de IA (independente de index.js)
+const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: IS_PROD ? 30 : 200,
+  message: { error: "Muitas requisições de IA, tente mais tarde" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+router.use(aiLimiter);
+
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+// Teto do corpo multipart: 5MB (arquivo) + 50KB de margem p/ fields/boundary
+const MULTIPART_BODY_LIMIT = MAX_IMAGE_BYTES + 50 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_CHAT_MESSAGES = 15;
 const MAX_CONTENT_CHARS = 3000;
@@ -174,11 +189,41 @@ async function checkAiLimit(userId) {
 }
 
 async function incrUsage(userId) {
-  await (await col("ai_usage")).updateOne(
-    { user_id: userId, date: today() },
-    { $inc: { count: 1 }, $setOnInsert: { created_at: new Date().toISOString() } },
+  const usage = await getUsage(userId);
+  const coll = await col("ai_usage");
+  const date = today();
+  const createdAt = new Date().toISOString();
+
+  // Plano ilimitado: incrementa sem filtro de limite
+  if (!Number.isFinite(usage.limit)) {
+    await coll.updateOne(
+      { user_id: userId, date },
+      { $inc: { count: 1 }, $setOnInsert: { created_at: createdAt } },
+      { upsert: true }
+    );
+    return usage;
+  }
+
+  // Garante o documento do dia (se não existir)
+  await coll.updateOne(
+    { user_id: userId, date },
+    { $setOnInsert: { count: 0, created_at: createdAt } },
     { upsert: true }
   );
+
+  // VULN-006: incremento atômico — só incrementa se abaixo do limite
+  const result = await coll.updateOne(
+    { user_id: userId, date, count: { $lt: usage.limit } },
+    { $inc: { count: 1 } }
+  );
+
+  if (result.matchedCount === 0) {
+    const e = new Error(`Limite diário de IA atingido (${usage.limit} por dia). Faça upgrade do seu plano.`);
+    e.status = 429;
+    e.payload = { limit: usage.limit, current: usage.used, plan: usage.plan, upgrade: true };
+    throw e;
+  }
+  return usage;
 }
 
 function sendError(res, err) {
@@ -259,14 +304,37 @@ function splitBuffer(buffer, delimiter) {
   return parts;
 }
 
-function parseMultipart(req, contentType) {
+function parseMultipart(req, res, contentType) {
   return new Promise((resolve, reject) => {
+    // VULN-004: aborta cedo se o Content-Length declarado já excede o limite
+    const declaredLength = Number.parseInt(req.headers["content-length"] || "", 10);
+    if (Number.isFinite(declaredLength) && declaredLength > MULTIPART_BODY_LIMIT) {
+      const err = new Error("Corpo da requisição excede o limite de 5MB.");
+      err.status = 413;
+      return reject(err);
+    }
+
     const chunks = [];
+    let receivedBytes = 0;
+    let aborted = false;
     const boundaryMatch = contentType.match(/boundary=(.+)/);
     if (!boundaryMatch) return reject(new Error("Boundary do multipart ausente."));
     const boundary = boundaryMatch[1];
 
-    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("data", (chunk) => {
+      if (aborted) return;
+      receivedBytes += chunk.length;
+      if (receivedBytes > MULTIPART_BODY_LIMIT) {
+        aborted = true;
+        const err = new Error("Corpo da requisição excede o limite de 5MB.");
+        err.status = 413;
+        if (res && !res.headersSent) res.status(413).json({ error: err.message });
+        req.destroy();
+        reject(err);
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("error", reject);
     req.on("end", () => {
       try {
@@ -313,7 +381,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       return res.status(400).json({ error: "Use multipart/form-data com o campo 'photo'." });
     }
 
-    const fields = await parseMultipart(req, contentType);
+    const fields = await parseMultipart(req, res, contentType);
     const file = fields.photo;
     if (!file || !file.buffer?.length) {
       return res.status(400).json({ error: "Nenhuma imagem enviada. Use o campo 'photo'." });
@@ -382,6 +450,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       usage: { used: usage.used + 1, limit: usage.limit, plan: usage.plan },
     });
   } catch (err) {
+    if (res.headersSent) return;
     sendError(res, err);
   }
 }));

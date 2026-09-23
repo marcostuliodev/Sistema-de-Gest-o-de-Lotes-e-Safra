@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 
 const DEFAULT_SECRET = "dev-secret-agrolote";
 export const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_SECRET;
@@ -10,15 +11,31 @@ if (IS_PROD && JWT_SECRET === DEFAULT_SECRET) {
   process.exit(1);
 }
 
+if (!IS_PROD && !process.env.JWT_SECRET) {
+  console.warn("[auth] JWT_SECRET nao definido — usando segredo padrao de desenvolvimento. NUNCA use o padrao em producao.");
+}
+
+// VULN-013: TTL mantido em 7d para nao quebrar sessoes longas do usuario.
+// Reduzir para 24h exigiria re-login frequente (risco de UX) — deixamos o
+// TTL configuravel via env JWT_TTL para ajuste futuro sem redeploy de codigo.
 const TOKEN_TTL = process.env.JWT_TTL || "7d";
 
 export function signToken(user) {
-  return jwt.sign({ uid: user.id, email: user.email }, JWT_SECRET, {
-    expiresIn: TOKEN_TTL,
-    algorithm: "HS256",
-    issuer: "agrolote",
-    audience: "agrolote-app",
-  });
+  return jwt.sign(
+    { uid: user.id, email: user.email, email_verified: user.email_verified === true },
+    JWT_SECRET,
+    {
+      expiresIn: TOKEN_TTL,
+      algorithm: "HS256",
+      issuer: "agrolote",
+      audience: "agrolote-app",
+    }
+  );
+}
+
+// SHA-256 do token em texto — o valor cru NUNCA vai ao banco (VULN-021).
+export function hashToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
 }
 
 function parseCookies(req) {
@@ -77,4 +94,16 @@ export function authMiddleware(req, res, next) {
   } catch {
     return res.status(401).json({ error: "Sessao expirada, faca login novamente" });
   }
+}
+
+// VULN-010: bloqueia APENAS rotas sensíveis (checkout/trial/invite).
+// Tokens antigos sem o claim (undefined) passam — transição sem trancar
+// sessões existentes; novos logins sempre carregam o claim.
+export function requireVerified(req, res, next) {
+  authMiddleware(req, res, () => {
+    if (req.user && req.user.email_verified === false) {
+      return res.status(403).json({ error: "Confirme seu e-mail para continuar" });
+    }
+    next();
+  });
 }

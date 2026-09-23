@@ -1,12 +1,24 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { col } from "../db.js";
+import { hashToken } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { emailSchema, passwordSchema, escapeRegExp, sanitizeText } from "../validation.js";
 
 const router = Router();
 const RESET_TOKEN_TTL = 60 * 60 * 1000; // 1 hour
+
+// VULN-014: limite local — /resend-verification não é coberto pelo authLimiter
+// do index.js. /forgot-password já tem authLimiter montado lá.
+const resendVerificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas tentativas, tente novamente mais tarde" },
+});
 
 // POST /api/auth/forgot-password
 router.post("/forgot-password", asyncHandler(async (req, res) => {
@@ -30,7 +42,7 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
   await resets.deleteMany({ user_id: user.id || user._id });
   await resets.insertOne({
     user_id: user.id || user._id,
-    token,
+    token_hash: hashToken(token),
     expires_at: expires.toISOString(),
     created_at: new Date().toISOString(),
   });
@@ -104,7 +116,7 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
   }
 
   const resets = await col("password_resets");
-  const resetRecord = await resets.findOne({ token });
+  const resetRecord = await resets.findOne({ token_hash: hashToken(token) });
 
   if (!resetRecord) {
     return res.status(400).json({ error: "Token inválido ou expirado" });
@@ -139,7 +151,7 @@ router.get("/verify-reset-token/:token", asyncHandler(async (req, res) => {
     return res.status(400).json({ valid: false, error: "Token inválido" });
   }
   const resets = await col("password_resets");
-  const resetRecord = await resets.findOne({ token: raw });
+  const resetRecord = await resets.findOne({ token_hash: hashToken(raw) });
 
   if (!resetRecord) {
     return res.status(400).json({ valid: false, error: "Token inválido" });
@@ -161,7 +173,7 @@ router.post("/verify-email", asyncHandler(async (req, res) => {
   }
 
   const verifications = await col("email_verifications");
-  const record = await verifications.findOne({ token });
+  const record = await verifications.findOne({ token_hash: hashToken(token) });
   if (!record) return res.status(400).json({ error: "Token inválido" });
 
   if (new Date(record.expires_at) < new Date()) {
@@ -180,7 +192,7 @@ router.post("/verify-email", asyncHandler(async (req, res) => {
 }));
 
 // POST /api/auth/resend-verification
-router.post("/resend-verification", asyncHandler(async (req, res) => {
+router.post("/resend-verification", resendVerificationLimiter, asyncHandler(async (req, res) => {
   const { email } = req.body || {};
   const parsed = emailSchema.safeParse(email);
   if (!parsed.success) {
@@ -200,7 +212,7 @@ router.post("/resend-verification", asyncHandler(async (req, res) => {
   await verifications.deleteMany({ user_id: user.id || user._id });
   await verifications.insertOne({
     user_id: user.id || user._id,
-    token,
+    token_hash: hashToken(token),
     expires_at: expires.toISOString(),
     created_at: new Date().toISOString(),
   });

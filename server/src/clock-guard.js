@@ -17,6 +17,33 @@ const MAX_DRIFT_MS = 60 * 60 * 1000;
 const HARD_BLOCK_DRIFT_MS = -(5 * 60 * 1000);
 
 /**
+ * Marca o usuário como bloqueado em integrity_score (isUserBlocked → true).
+ * Usado quando o heartbeat detecta rollback de relógio (VULN-019).
+ * O bloqueio é consumido apenas em checkout/trial/collaborators — não
+ * derruba sync/IA/login (evita falso positivo em fogo cruzado).
+ */
+async function markUserBlockedByClock(userId, reason) {
+  try {
+    const scoreCol = await col("integrity_score");
+    await scoreCol.updateOne(
+      { user_id: userId },
+      {
+        $set: {
+          score: 0,
+          blocked: true,
+          block_reason: reason,
+          updated_at: new Date().toISOString(),
+        },
+      },
+      { upsert: true }
+    );
+  } catch (e) {
+    // Não falha o heartbeat por causa da marcação de bloqueio
+    console.error("[clock-guard] Falha ao marcar bloqueio:", e.message);
+  }
+}
+
+/**
  * Registra heartbeat e retorna status da integridade do relógio.
  *
  * @param {number} userId
@@ -56,6 +83,7 @@ export async function checkClock(userId, deviceTime) {
       },
       { upsert: true }
     );
+    await markUserBlockedByClock(userId, "clock_rolled_back");
     return { ok: false, serverTime: now.toISOString(), driftMs, compromised: true, reason: "clock_rolled_back" };
   }
 
@@ -77,6 +105,7 @@ export async function checkClock(userId, deviceTime) {
         },
         { upsert: true }
       );
+      await markUserBlockedByClock(userId, "excessive_drift");
       return { ok: false, serverTime: now.toISOString(), driftMs, compromised: true, reason: "excessive_drift" };
     }
   }

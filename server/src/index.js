@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { col, migrate } from "./db.js";
+import { requireVerified } from "./auth.js";
 import { createDemoAccount } from "./routes/auth.js";
 import authRouter from "./routes/auth.js";
 import passwordResetRouter from "./routes/password-reset.js";
@@ -83,6 +84,11 @@ app.use((req, res, next) => {
   express.json({ limit: "256kb" })(req, res, next);
 });
 
+// NOTA (serverless/Vercel): express-rate-limit usa MemoryStore em memória —
+// cada instância serverless mantém seu próprio contador (eficácia reduzida
+// entre cold starts, mas ainda limita bursts na mesma instância). Não
+// introduzimos store Redis externo para não arriscar o build/deploy.
+// standardHeaders: true envia os headers RateLimit-* padrão IETF.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: IS_PROD ? 10 : 100,
@@ -91,10 +97,33 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+function makeLimiter(max, msg = "Muitas tentativas, tente novamente mais tarde") {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: IS_PROD ? max : max * 10,
+    message: { error: msg },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+}
+
+const emailLimiter = makeLimiter(10, "Muitos envios, tente novamente mais tarde");
+const inviteLimiter = makeLimiter(10, "Muitos convites, tente novamente mais tarde");
+const upgradeLimiter = makeLimiter(20, "Muitas tentativas de upgrade, tente novamente mais tarde");
+// 120/15min: offline pode dar burst ao reconectar sem quebrar o sync
+const syncLimiter = makeLimiter(120, "Muitas sincronizações, aguarde um momento");
+// cron/ai: limiters LOCAIS em routes/cron.js e routes/ai.js (outro agente) —
+// NÃO duplicar aqui.
+
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
 app.use("/api/auth/reset-password", authLimiter);
+app.use("/api/auth/resend-verification", emailLimiter);
+app.use("/api/collaborators/invite", inviteLimiter);
+app.use("/api/upgrade/checkout", upgradeLimiter);
+app.use("/api/upgrade/trial", upgradeLimiter);
+app.use("/api/sync", syncLimiter);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Bootstrap (roda uma vez — cold start no Vercel, startup no Render/VPS)
@@ -108,15 +137,46 @@ async function bootstrap() {
   bootstrapped = true;
   await logCronKey().catch(() => {});
 
+  // VULN-010 (compat): usuários legados criados com email_verified=false
+  // seriam bloqueados de checkout/trial/invite. Marca TODOS os usuários
+  // existentes como verificados UMA única vez; contas novas depois disso
+  // continuam exigindo confirmação de e-mail.
+  try {
+    const migrations = await col("migrations");
+    const done = await migrations.findOne({ _id: "legacy_email_verified_v1" });
+    if (!done) {
+      const users = await col("users");
+      const r = await users.updateMany(
+        { email_verified: { $ne: true } },
+        { $set: { email_verified: true, verified_at: new Date().toISOString() } }
+      );
+      await migrations.insertOne({
+        _id: "legacy_email_verified_v1",
+        updated: r.modifiedCount || 0,
+        at: new Date().toISOString(),
+      });
+      if (r.modifiedCount) {
+        console.log(`[migrate] ${r.modifiedCount} usuário(s) legado(s) marcados como e-mail verificado`);
+      }
+    }
+  } catch (e) {
+    console.error("[migrate] legacy_email_verified:", e.message);
+  }
+
   if (process.env.SEED_DEMO === "true") {
-    const usersCol = await col("users");
-    const count = await usersCol.countDocuments();
-    if (count === 0) {
-      console.log("Banco novo — semeando dados demo...");
-      const { seed } = await import("./seed.js");
-      await seed();
+    if (IS_PROD) {
+      // VULN-009: nunca semear conta demo em produção.
+      console.warn("SEED_DEMO ignorado em produção.");
     } else {
-      await createDemoAccount();
+      const usersCol = await col("users");
+      const count = await usersCol.countDocuments();
+      if (count === 0) {
+        console.log("Banco novo — semeando dados demo...");
+        const { seed } = await import("./seed.js");
+        await seed();
+      } else {
+        await createDemoAccount();
+      }
     }
   }
 }
@@ -151,6 +211,12 @@ app.get("/api/health", async (_req, res) => {
   }
   res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString(), hasDb, dbOk });
 });
+
+// VULN-010: e-mail confirmado apenas em rotas sensíveis (checkout, trial,
+// invite) — demais rotas (sync, IA, leitura) seguem liberadas.
+app.use("/api/upgrade/checkout", requireVerified);
+app.use("/api/upgrade/trial", requireVerified);
+app.use("/api/collaborators/invite", requireVerified);
 
 app.use("/api/auth", passwordResetRouter);
 app.use("/api/auth", authRouter);
@@ -197,9 +263,9 @@ app.use((err, _req, res, _next) => {
 if (!IS_VERCEL) {
   app.listen(PORT, async () => {
     if (!IS_PROD) {
-      const demoId = await createDemoAccount();
+      await createDemoAccount();
       console.log(`Agrolote API em http://localhost:${PORT}`);
-      console.log(`Conta demo: demo@agrolote.app / demo123 (id ${demoId})`);
+      console.log("Conta demo criada (use painel/admin para credenciais)");
     }
   });
 }

@@ -6,12 +6,42 @@ import { col, copyable, bumpUsersSequence } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { entitySchemas, sanitizeSnapshot, sanitizeText } from "../validation.js";
+import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
 
 const router = Router();
 router.use(authMiddleware);
 
 const ENTITIES = ["lotes", "plantios", "insumos", "gastos", "colheitas"];
 const MAX_OPS = 100;
+
+const LIMITED_ENTITIES = {
+  lotes: "maxLotes",
+  plantios: "maxPlantios",
+};
+
+async function assertCreateWithinPlanLimit(entity, uid) {
+  const limitKey = LIMITED_ENTITIES[entity];
+  if (!limitKey) return;
+
+  const { plan: activePlan, owner_id } = await resolveEffectivePlan(uid);
+  const ownerId = owner_id || uid;
+  const features = getPlanFeatures(activePlan);
+  const max = features[limitKey];
+
+  if (max === Infinity) return;
+  // max === 0 → plano sem acesso à entidade (não pula o check)
+  if (max <= 0) {
+    throw new Error(
+      `Seu plano nao permite ${limitKey === "maxLotes" ? "lotes" : "plantios"}. Faca upgrade do seu plano.`
+    );
+  }
+  const count = await (await col(entity)).countDocuments({ user_id: ownerId });
+  if (count >= max) {
+    throw new Error(
+      `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faca upgrade do seu plano.`
+    );
+  }
+}
 
 async function ensureUser(user) {
   const users = await col("users");
@@ -49,6 +79,7 @@ async function applyOp(entity, action, row, uid) {
     }
     await c.updateOne({ _id: id }, { $set: update });
   } else {
+    await assertCreateWithinPlanLimit(entity, uid);
     const doc = { _id: id, id, user_id: uid };
     for (const f of fields) {
       doc[f] = data[f];

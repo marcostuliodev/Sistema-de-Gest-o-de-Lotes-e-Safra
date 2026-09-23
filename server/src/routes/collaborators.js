@@ -6,10 +6,36 @@ import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { sanitizeRow, passwordSchema, emailSchema, uuidSchema, sanitizeText, escapeRegExp } from "../validation.js";
+import { hashToken } from "../auth.js";
 import { getPlanFeatures } from "../plans.js";
 
 const router = Router();
 router.use(authMiddleware);
+
+// VULN-018: bloqueia convites apenas por relógio adulterado (não por DevTools).
+// Fail-open em erro de leitura (não derruba o fluxo por indisponibilidade).
+router.use(async (req, res, next) => {
+  try {
+    const scoreCol = await col("integrity_score");
+    const row = await scoreCol.findOne({ user_id: req.user.uid });
+    const reason = String(row?.block_reason || "");
+    if (row?.blocked && (reason === "clock_rolled_back" || reason === "excessive_drift")) {
+      return res.status(403).json({ error: "Acesso bloqueado" });
+    }
+  } catch {
+    /* fail-open */
+  }
+  next();
+});
+
+/** Mascara e-mail em logs (VULN-024): mail@dom.com → m***@dom.com */
+function maskEmail(email) {
+  const s = String(email || "");
+  const at = s.indexOf("@");
+  if (at <= 0) return "***";
+  const local = s.slice(0, at);
+  return `${local[0]}***@${s.slice(at + 1)}`;
+}
 
 // POST /api/collaborators/invite - Invite a collaborator
 router.post("/invite", asyncHandler(async (req, res) => {
@@ -124,7 +150,7 @@ router.post("/invite", asyncHandler(async (req, res) => {
     await resets.deleteMany({ user_id: newUserId });
     await resets.insertOne({
       user_id: newUserId,
-      token: resetToken,
+      token_hash: hashToken(resetToken),
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       created_at: new Date().toISOString(),
     });
@@ -217,7 +243,7 @@ router.post("/invite", asyncHandler(async (req, res) => {
           </div>
         `,
       });
-      console.log(`[invite] Email de convite enviado para ${normalizedEmail}`);
+      console.log(`[invite] Email de convite enviado para ${maskEmail(normalizedEmail)}`);
     } catch (e) {
       console.error("[invite] Erro ao enviar email de convite:", e.message);
       if (process.env.NODE_ENV !== "production") {

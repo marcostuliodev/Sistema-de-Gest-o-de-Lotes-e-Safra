@@ -86,7 +86,15 @@ function crudRouter(entity) {
       const features = getPlanFeatures(activePlan);
       const max = features[limitKey];
 
-      if (max !== Infinity && max > 0) {
+      if (max !== Infinity) {
+        if (max <= 0) {
+          return res.status(403).json({
+            error: `Seu plano nao permite ${limitKey === "maxLotes" ? "lotes" : "plantios"}. Faca upgrade do seu plano.`,
+            limit: max,
+            current: 0,
+            plan: activePlan,
+          });
+        }
         const count = await (await col(entity)).countDocuments({ user_id: ownerId });
         if (count >= max) {
           return res.status(403).json({

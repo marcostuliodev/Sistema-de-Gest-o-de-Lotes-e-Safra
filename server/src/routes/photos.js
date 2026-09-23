@@ -9,6 +9,8 @@ const router = Router();
 router.use(authMiddleware);
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+// Teto do corpo multipart: 5MB (arquivo) + 50KB de margem p/ fields/boundary
+const MULTIPART_BODY_LIMIT = MAX_FILE_SIZE + 50 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
@@ -36,6 +38,25 @@ function validateImageFile(file) {
   }
 }
 
+/**
+ * VULN-027: verifica magic bytes do buffer contra o mimetype declarado.
+ * JPEG: FF D8 FF | PNG: 89 50 4E 47 | WebP: RIFF....WEBP
+ * Retorna true se bate (ou se não dá para checar buffer vazio demais → false).
+ */
+function magicBytesMatch(buffer, mimetype) {
+  if (!buffer || buffer.length < 12) return false;
+  if (mimetype === "image/jpeg") {
+    return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimetype === "image/png") {
+    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  }
+  if (mimetype === "image/webp") {
+    return buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+  }
+  return false;
+}
+
 async function checkPhotoLimit(userId, count) {
   const { resolveEffectivePlan } = await import("../plans.js");
   const { plan: activePlan } = await resolveEffectivePlan(userId);
@@ -55,64 +76,88 @@ router.post("/", asyncHandler(async (req, res) => {
   const contentType = req.headers["content-type"] || "";
 
   if (contentType.includes("multipart/form-data")) {
+    // VULN-004: aborta cedo se o Content-Length declarado já excede o limite
+    const declaredLength = Number.parseInt(req.headers["content-length"] || "", 10);
+    if (Number.isFinite(declaredLength) && declaredLength > MULTIPART_BODY_LIMIT) {
+      return res.status(413).json({ error: "Corpo da requisição excede o limite de 5MB." });
+    }
+
     // Handle multipart form data
     const chunks = [];
     const fields = {};
+    let receivedBytes = 0;
+    let aborted = false;
 
-    await new Promise((resolve, reject) => {
-      let currentField = null;
-      let currentData = [];
-      let boundary = "";
+    try {
+      await new Promise((resolve, reject) => {
+        let currentField = null;
+        let currentData = [];
+        let boundary = "";
 
-      const boundaryMatch = contentType.match(/boundary=(.+)/);
-      if (boundaryMatch) boundary = boundaryMatch[1];
+        const boundaryMatch = contentType.match(/boundary=(.+)/);
+        if (boundaryMatch) boundary = boundaryMatch[1];
 
-      req.on("data", (chunk) => {
-        chunks.push(chunk);
-      });
+        req.on("data", (chunk) => {
+          if (aborted) return;
+          receivedBytes += chunk.length;
+          if (receivedBytes > MULTIPART_BODY_LIMIT) {
+            aborted = true;
+            const err = new Error("Corpo da requisição excede o limite de 5MB.");
+            err.status = 413;
+            if (!res.headersSent) res.status(413).json({ error: err.message });
+            req.destroy();
+            reject(err);
+            return;
+          }
+          chunks.push(chunk);
+        });
 
-      req.on("end", () => {
-        try {
-          const fullBuffer = Buffer.concat(chunks);
-          const boundaryBuf = Buffer.from(`--${boundary}`);
-          const parts = splitBuffer(fullBuffer, boundaryBuf);
+        req.on("end", () => {
+          try {
+            const fullBuffer = Buffer.concat(chunks);
+            const boundaryBuf = Buffer.from(`--${boundary}`);
+            const parts = splitBuffer(fullBuffer, boundaryBuf);
 
-          for (const part of parts) {
-            const str = part.toString("utf-8");
-            const headerEnd = str.indexOf("\r\n\r\n");
-            if (headerEnd === -1) continue;
+            for (const part of parts) {
+              const str = part.toString("utf-8");
+              const headerEnd = str.indexOf("\r\n\r\n");
+              if (headerEnd === -1) continue;
 
-            const headerSection = str.slice(0, headerEnd);
-            const nameMatch = headerSection.match(/name="([^"]+)"/);
-            const filenameMatch = headerSection.match(/filename="([^"]+)"/);
-            const contentTypeMatch = headerSection.match(/Content-Type:\s*(.+)/i);
+              const headerSection = str.slice(0, headerEnd);
+              const nameMatch = headerSection.match(/name="([^"]+)"/);
+              const filenameMatch = headerSection.match(/filename="([^"]+)"/);
+              const contentTypeMatch = headerSection.match(/Content-Type:\s*(.+)/i);
 
-            if (nameMatch) {
-              const fieldName = nameMatch[1];
-              const rawData = part.slice(Buffer.byteLength(str.slice(0, headerEnd + 4)));
+              if (nameMatch) {
+                const fieldName = nameMatch[1];
+                const rawData = part.slice(Buffer.byteLength(str.slice(0, headerEnd + 4)));
 
-              if (filenameMatch) {
-                // This is a file field
-                fields[fieldName] = {
-                  originalname: filenameMatch[1],
-                  mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : "application/octet-stream",
-                  buffer: rawData,
-                  size: rawData.length,
-                };
-              } else {
-                // This is a regular field
-                fields[fieldName] = rawData.toString("utf-8").trim();
+                if (filenameMatch) {
+                  // This is a file field
+                  fields[fieldName] = {
+                    originalname: filenameMatch[1],
+                    mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : "application/octet-stream",
+                    buffer: rawData,
+                    size: rawData.length,
+                  };
+                } else {
+                  // This is a regular field
+                  fields[fieldName] = rawData.toString("utf-8").trim();
+                }
               }
             }
+            resolve();
+          } catch (err) {
+            reject(err);
           }
-          resolve();
-        } catch (err) {
-          reject(err);
-        }
-      });
+        });
 
-      req.on("error", reject);
-    });
+        req.on("error", reject);
+      });
+    } catch (err) {
+      if (res.headersSent) return;
+      return res.status(err.status || 400).json({ error: err.message || "Falha ao processar o upload." });
+    }
 
     const file = fields.photo;
     if (!file) {
@@ -120,6 +165,11 @@ router.post("/", asyncHandler(async (req, res) => {
     }
 
     validateImageFile(file);
+
+    // VULN-027: magic bytes precisam bater com o mimetype declarado (400)
+    if (!magicBytesMatch(file.buffer, file.mimetype)) {
+      return res.status(400).json({ error: "Conteúdo do arquivo não corresponde ao tipo declarado. Use JPEG, PNG ou WebP válidos." });
+    }
 
     const plantio_id = typeof fields.plantio_id === "string" ? fields.plantio_id : "";
     const lote_id = typeof fields.lote_id === "string" ? fields.lote_id : "";
@@ -174,6 +224,11 @@ router.post("/", asyncHandler(async (req, res) => {
     const finalMimetype = typeof mimetype === "string" && mimetype ? mimetype : "image/jpeg";
     if (!ALLOWED_TYPES.includes(finalMimetype)) {
       return res.status(400).json({ error: `Tipo não permitido: ${finalMimetype}` });
+    }
+
+    // VULN-027: magic bytes do buffer base64 precisam bater com o mimetype
+    if (!magicBytesMatch(buffer, finalMimetype)) {
+      return res.status(400).json({ error: "Conteúdo do arquivo não corresponde ao tipo declarado. Use JPEG, PNG ou WebP válidos." });
     }
 
     const safeFilename = typeof filename === "string" && filename ? filename : "photo.jpg";

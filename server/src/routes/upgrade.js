@@ -20,7 +20,7 @@ import { asyncHandler } from "../asyncHandler.js";
 import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, isValidPlan, resolveEffectivePlan } from "../plans.js";
 import { generateLicense, verifyLicense, getPublicKeyPem } from "../license.js";
 import { checkClock } from "../clock-guard.js";
-import { reportIntegrity, isUserBlocked } from "../integrity.js";
+import { reportIntegrity } from "../integrity.js";
 
 const router = Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -33,6 +33,22 @@ const APP_URL = process.env.APP_URL || (IS_PROD ? "https://agrolote.marcostuliog
 function stripeClient() {
   if (!STRIPE_SECRET) return null;
   return new Stripe(STRIPE_SECRET);
+}
+
+/** VULN-018: bloqueia APENAS por relógio adulterado (bypass de licença).
+ *  DevTools/UA não devem travar checkout de usuário legítimo. Fail-open. */
+async function requireNotBlocked(req, res, next) {
+  try {
+    const scoreCol = await col("integrity_score");
+    const row = await scoreCol.findOne({ user_id: req.user.uid });
+    const reason = String(row?.block_reason || "");
+    if (row?.blocked && (reason === "clock_rolled_back" || reason === "excessive_drift")) {
+      return res.status(403).json({ error: "Acesso bloqueado" });
+    }
+  } catch {
+    // DB indisponível não deve travar checkout/trial
+  }
+  next();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -60,7 +76,7 @@ router.get("/public-key", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 // POST /api/upgrade/checkout — Cria sessão Stripe Checkout
 // ═══════════════════════════════════════════════════════════════════════
-router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
+router.post("/checkout", authMiddleware, requireNotBlocked, asyncHandler(async (req, res) => {
   try {
     // Bloquear checkout para colaboradores
     const { col } = await import("../db.js");
@@ -147,6 +163,20 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Invalid signature" });
   }
 
+  // VULN-020: idempotência — Stripe pode reentregar o mesmo evento.
+  // event.id é único; se já processado, ACK com 200 sem reprocessar.
+  try {
+    const eventsCol = await col("stripe_events");
+    const prior = await eventsCol.findOne({ event_id: event.id });
+    if (prior) {
+      return res.json({ received: true, duplicate: true });
+    }
+  } catch (e) {
+    // Se a checagem falhar (DB), segue o processamento — melhor arriscar
+    // reprocessar do que perder um pagamento legítimo.
+    console.error("[webhook] Falha ao checar idempotência:", e.message);
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -163,11 +193,15 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
         break;
       }
       case "invoice.paid": {
-        // Renovação — estende o período
+        // Renovação — usa o período do próprio Stripe quando disponível
+        // (não soma +1 mês cegamente; dedup por event.id acima).
         const invoice = event.data.object;
-        const subId = invoice.subscription;
+        const subId =
+          invoice.subscription ||
+          invoice.parent?.subscription_details?.subscription ||
+          null;
         if (subId) {
-          await renewSubscription(subId);
+          await renewSubscription(subId, invoicePeriodEnd(invoice));
         }
         break;
       }
@@ -189,8 +223,28 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
     console.error(`[webhook] Erro ao processar ${event.type}:`, err.message);
   }
 
+  // Registra o event.id após o processamento (melhor esforço).
+  try {
+    const eventsCol = await col("stripe_events");
+    await eventsCol.updateOne(
+      { event_id: event.id },
+      { $setOnInsert: { event_id: event.id, type: event.type, processed_at: new Date().toISOString() } },
+      { upsert: true }
+    );
+  } catch (e) {
+    console.error("[webhook] Falha ao registrar event.id:", e.message);
+  }
+
   res.json({ received: true });
 }));
+
+/** Extrai o fim de período do invoice do Stripe (epoch seconds → Date). */
+function invoicePeriodEnd(invoice) {
+  const line = invoice?.lines?.data?.[0];
+  if (line?.period?.end) return new Date(line.period.end * 1000);
+  if (invoice?.period_end) return new Date(invoice.period_end * 1000);
+  return null;
+}
 
 // Helper para raw body (Stripe webhook precisa do body bruto)
 function expressRawBody() {
@@ -200,7 +254,7 @@ function expressRawBody() {
 // ═══════════════════════════════════════════════════════════════════════
 // POST /api/upgrade/trial — Inicia trial de um plano
 // ═══════════════════════════════════════════════════════════════════════
-router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
+router.post("/trial", authMiddleware, requireNotBlocked, asyncHandler(async (req, res) => {
   try {
     // Bloquear trial para colaboradores
     const { col } = await import("../db.js");
@@ -428,16 +482,28 @@ async function activatePlan(userId, plan, billing, stripeSubId) {
   console.log(`[upgrade] Plano ${plan} ativado para user ${userId}`);
 }
 
-async function renewSubscription(stripeSubId) {
+async function renewSubscription(stripeSubId, stripePeriodEnd = null) {
   const subs = await col("subscriptions");
   const row = await subs.findOne({ stripe_subscription_id: stripeSubId });
   if (!row) return;
 
-  const newEnd = new Date(row.current_period_end || new Date());
-  if (row.billing === "annual") {
-    newEnd.setFullYear(newEnd.getFullYear() + 1);
+  let newEnd;
+  if (stripePeriodEnd instanceof Date && !isNaN(stripePeriodEnd.getTime())) {
+    // Periode vindo do Stripe (fonte autoritativa) — não soma +1 cegamente.
+    newEnd = stripePeriodEnd;
+    const currentEnd = row.current_period_end ? new Date(row.current_period_end) : null;
+    // Nunca encurtar o período já concedido (ex.: reentrega atrasada).
+    if (currentEnd && !isNaN(currentEnd.getTime()) && newEnd.getTime() < currentEnd.getTime()) {
+      newEnd = currentEnd;
+    }
   } else {
-    newEnd.setMonth(newEnd.getMonth() + 1);
+    // Fallback legado: estende a partir do período atual.
+    newEnd = new Date(row.current_period_end || new Date());
+    if (row.billing === "annual") {
+      newEnd.setFullYear(newEnd.getFullYear() + 1);
+    } else {
+      newEnd.setMonth(newEnd.getMonth() + 1);
+    }
   }
 
   await subs.updateOne(

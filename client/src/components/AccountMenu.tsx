@@ -112,23 +112,24 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
   // Limpa todo o cache do usuário: Service Worker, IndexedDB, localStorage, sessionStorage
   async function clearCache() {
     try {
-      // 1. Fecha o Dexie (IndexedDB)
-      await db.close();
-      // 2. Deleta o banco IndexedDB
-      indexedDB.deleteDatabase("agrolote");
-      // 3. Limpa localStorage e sessionStorage
-      localStorage.clear();
-      sessionStorage.clear();
-      // 4. Limpa caches do Service Worker
-      if ("caches" in window) {
-        const names = await caches.keys();
-        await Promise.all(names.map((n) => caches.delete(n)));
-      }
-      // 5. Cancela o registro do Service Worker
+      // 1. Cancela o registro do Service Worker PRIMEIRO (senão ele pode
+      //    re-popular o cache de API durante a limpeza).
       if ("serviceWorker" in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg) await reg.unregister();
       }
+      // 2. Limpa caches do Service Worker (inclui api-cache com dados do usuário)
+      if ("caches" in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map((n) => caches.delete(n)));
+      }
+      // 3. Fecha o Dexie (IndexedDB)
+      await db.close();
+      // 4. Deleta o banco IndexedDB
+      indexedDB.deleteDatabase("agrolote");
+      // 5. Limpa localStorage e sessionStorage
+      localStorage.clear();
+      sessionStorage.clear();
       // 6. Recarrega a página com cache limpo
       window.location.reload();
     } catch {

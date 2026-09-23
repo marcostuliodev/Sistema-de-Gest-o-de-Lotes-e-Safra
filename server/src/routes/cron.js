@@ -1,8 +1,19 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { timingSafeEqual } from "node:crypto";
 import { runWeatherChecks, getCronKey } from "../scheduler.js";
 
 const router = Router();
+
+// Rate limit fraco: o cron legado pode chamar via query, mas 10/min é suficiente
+// para agendador legítimo e limita força bruta contra a chave.
+const cronLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: "rate limit" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Comparação à prova de ataque de temporização (timing-safe). Evita que um
 // atacante infira o CRON_KEY byte a byte medindo o tempo de resposta.
@@ -16,9 +27,10 @@ function safeEqual(a, b) {
 
 // Disparado por um agendador externo (ex.: GitHub Actions / cron-job.org) para
 // rodar as verificações de clima mesmo quando o Render "dorme" o free tier.
-// Use GET /api/cron/weather?key=CRON_KEY (ou header x-cron-key).
-router.get("/weather", async (req, res) => {
-  const provided = req.query.key || req.get("x-cron-key");
+// Prefira o header x-cron-key (não aparece em logs de URL); query.key é mantida
+// apenas por compatibilidade com agendadores antigos — a chave NUNCA é logada.
+router.get("/weather", cronLimiter, async (req, res) => {
+  const provided = req.get("x-cron-key") || req.query.key;
   let cronKey = null;
   try {
     cronKey = await getCronKey();

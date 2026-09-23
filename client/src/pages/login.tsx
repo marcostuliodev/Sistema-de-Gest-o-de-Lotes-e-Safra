@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../store/auth";
+import { register as registerApi, setSession } from "../db/api";
 import { Button, Field, TextInput, Form } from "../components/ui";
 import { Leaf, WifiOff } from "../components/icons";
 
 export default function Login() {
-  const { login, register, resendVerification } = useAuth();
+  const { login, resendVerification } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -24,10 +25,12 @@ export default function Login() {
       if (mode === "login") {
         await login(email, password);
       } else {
-        const result = await register(name, email, password);
-        if (result && result.user && result.user.email_verified === false) {
-          setRegisteredEmail(email);
-        }
+        // Register nunca retorna JWT (VULN-007/023): chamamos a API direto
+        // para o AuthContext NÃO entrar em sessão — o fluxo é o mesmo para
+        // e-mail novo e já cadastrado (tela genérica + login em seguida).
+        await registerApi(name, email, password);
+        setSession(null);
+        setRegisteredEmail(email);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -65,11 +68,14 @@ export default function Login() {
           <div className="rounded-2xl bg-white p-6 shadow-2xl">
             <div className="text-center">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl text-green-600">✉</div>
-              <h2 className="text-lg font-bold text-stone-800">Confirme seu e-mail</h2>
+              <h2 className="text-lg font-bold text-stone-800">Quase lá!</h2>
               <p className="mt-2 text-sm text-stone-500">
-                Enviamos um link de confirmação para:
+                Se este e-mail for novo no Agrolote, enviamos um link de confirmação para:
               </p>
               <p className="mt-1 break-all text-sm font-medium text-stone-700">{registeredEmail}</p>
+              <p className="mt-2 text-xs text-stone-400">
+                Já tem uma conta com este e-mail? Volte ao login e entre com sua senha.
+              </p>
 
               {resendMsg && (
                 <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">{resendMsg}</p>
@@ -136,8 +142,15 @@ export default function Login() {
             <Field label="E-mail" required>
               <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" required />
             </Field>
-            <Field label="Senha" required hint={mode === "register" ? "Mínimo 6 caracteres" : undefined}>
-              <TextInput type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
+            <Field label="Senha" required hint={mode === "register" ? "Mínimo 8 caracteres" : undefined}>
+              <TextInput
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••"
+                required
+                minLength={mode === "register" ? 8 : undefined}
+              />
             </Field>
             {mode === "login" && (
               <div className="flex justify-end">
@@ -152,7 +165,7 @@ export default function Login() {
             </Button>
           </Form>
 
-          {mode === "login" && (
+          {mode === "login" && !import.meta.env.PROD && (
             <button
               type="button"
               onClick={async () => {

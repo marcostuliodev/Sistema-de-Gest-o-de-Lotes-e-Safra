@@ -428,6 +428,11 @@ export async function migrate() {
     { name: "integrity_score", indexes: [{ key: { user_id: 1 }, unique: true }] },
     { name: "outbox", indexes: [{ key: { created_at: 1 } }] },
     { name: "photos_metadata", indexes: [{ key: { user_id: 1 } }, { key: { plantio_id: 1 } }, { key: { lote_id: 1 } }] },
+    // VULN-020: idempotência do webhook Stripe
+    { name: "stripe_events", indexes: [{ key: { event_id: 1 }, unique: true }] },
+    { name: "email_verifications", indexes: [{ key: { user_id: 1 } }] },
+    { name: "password_resets", indexes: [{ key: { user_id: 1 } }] },
+    { name: "collaborators", indexes: [{ key: { owner_id: 1 } }, { key: { user_id: 1 } }] },
   ];
 
   for (const { name, indexes } of collections) {

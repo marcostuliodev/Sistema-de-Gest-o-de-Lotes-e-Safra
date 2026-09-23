@@ -126,7 +126,9 @@ export async function validateLicense(signedLicense: string, userId: number): Pr
 
     if (!valid) return { ...fallback, reason: "assinatura_invalida" };
     if (license.uid !== userId) return { ...fallback, reason: "user_mismatch" };
-    if (new Date(license.exp) < new Date()) return { ...fallback, reason: "expirado" };
+    // Expiração checada contra o relógio do dispositivo (Date.now) — mantém
+    // funcionamento offline; o clock-guard do servidor cobre rollback.
+    if (new Date(license.exp).getTime() < Date.now()) return { ...fallback, reason: "expirado" };
 
     return { valid: true, plan: license.plan, features: license.features };
   } catch {

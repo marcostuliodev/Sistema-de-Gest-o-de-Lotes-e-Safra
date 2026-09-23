@@ -368,13 +368,13 @@ export default function Colaboradores() {
               <option value="admin">Admin (leitura e escrita)</option>
             </Select>
           </Field>
-          <Field label="Senha do colaborador (opcional)" hint="Minimo 6 caracteres. Se vazio, o colaborador define a propria senha pelo link do email.">
+          <Field label="Senha do colaborador (opcional)" hint="Minimo 8 caracteres. Se vazio, o colaborador define a propria senha pelo link do email.">
             <TextInput
               type="password"
               placeholder="Deixe vazio para o colaborador definir"
               value={invitePassword}
               onChange={(e) => setInvitePassword(e.target.value)}
-              minLength={invitePassword ? 6 : undefined}
+              minLength={invitePassword ? 8 : undefined}
             />
           </Field>
           <p className="text-xs text-stone-400">

@@ -1,13 +1,23 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { v4 as uuid } from "uuid";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { getVapidPublic, sendPush } from "../push.js";
+import { getVapidPublic, sendPush, isValidPushEndpoint } from "../push.js";
 import { fetchWeather } from "../weather.js";
 
 const router = Router();
 router.use(authMiddleware);
+
+// Evita força bruta / abuso do endpoint de subscribe (SSRF probe).
+const subscribeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Muitas tentativas de inscrição, tente novamente mais tarde" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 router.get(
   "/vapid",
@@ -19,6 +29,7 @@ router.get(
 
 router.post(
   "/subscribe",
+  subscribeLimiter,
   asyncHandler(async (req, res) => {
     const { endpoint, keys } = req.body || {};
     if (
@@ -28,6 +39,13 @@ router.post(
       typeof keys.auth !== "string" || !keys.auth
     ) {
       return res.status(400).json({ error: "Inscrição inválida" });
+    }
+    // SSRF: endpoint precisa ser uma URL https pública (FCM/Mozilla/Apple…).
+    // Bloqueia localhost, IPs privados/link-local e *.internal/*.local.
+    if (!isValidPushEndpoint(endpoint)) {
+      return res
+        .status(400)
+        .json({ error: "Endpoint de push inválido: apenas URLs https públicas são permitidas" });
     }
     const subsCol = await col("push_subscriptions");
     await subsCol.deleteMany({ user_id: req.user.uid, endpoint });

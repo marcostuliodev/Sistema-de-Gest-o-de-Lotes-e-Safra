@@ -2,11 +2,15 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { col, migrate } from "../db.js";
-import { signToken, setAuthCookie, clearAuthCookie } from "../auth.js";
+import { signToken, setAuthCookie, clearAuthCookie, hashToken } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { emailSchema, passwordSchema, nameSchema, escapeRegExp, sanitizeText } from "../validation.js";
 
 const router = Router();
+
+// VULN-008: hash válido de string desconhecida — bcrypt.compare roda sempre
+// (user inexistente e senha errada têm o mesmo custo de timing).
+const DUMMY_HASH = bcrypt.hashSync("timing-equalizer-" + crypto.randomBytes(16).toString("hex"), 10);
 
 router.post("/register", asyncHandler(async (req, res) => {
   const { name, email, password } = req.body || {};
@@ -20,7 +24,15 @@ router.post("/register", asyncHandler(async (req, res) => {
   }
   const users = await col("users");
   const existing = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsedEmail.data) + "$", "i") } });
-  if (existing) return res.status(409).json({ error: "E-mail ja cadastrado" });
+  // VULN-007: resposta idêntica à de conta nova (201, sem token, sem cookie,
+  // sem 409) — não confirma que o e-mail existe. Não loga e não cria duplicata.
+  // Timing alinhado com o caminho de criação (bcrypt + inserts ~mesmo custo).
+  if (existing) {
+    await bcrypt.hash(parsedPass.data, 10);
+    return res.status(201).json({
+      user: { id: Date.now(), name: parsedName.data, email: parsedEmail.data, email_verified: false },
+    });
+  }
   const hash = await bcrypt.hash(parsedPass.data, 10);
   const id = Date.now();
   await users.insertOne({ _id: id, id, name: parsedName.data, email: parsedEmail.data, password_hash: hash, email_verified: false, created_at: new Date().toISOString() });
@@ -31,7 +43,7 @@ router.post("/register", asyncHandler(async (req, res) => {
   const verifications = await col("email_verifications");
   await verifications.insertOne({
     user_id: id,
-    token: verificationToken,
+    token_hash: hashToken(verificationToken),
     expires_at: expires.toISOString(),
     created_at: new Date().toISOString(),
   });
@@ -87,9 +99,10 @@ router.post("/register", asyncHandler(async (req, res) => {
   }
 
   const user = { id, name: parsedName.data, email: parsedEmail.data, email_verified: false };
-  const token = signToken(user);
-  setAuthCookie(res, token);
-  res.status(201).json({ user, token });
+  // VULN-007/023: sem JWT no body e sem cookie em register — o cliente
+  // mostra a tela genérica e o usuário entra via /login (fluxo idêntico
+  // para e-mail novo e já cadastrado).
+  res.status(201).json({ user });
 }));
 
 router.post("/login", asyncHandler(async (req, res) => {
@@ -99,13 +112,18 @@ router.post("/login", asyncHandler(async (req, res) => {
   try {
     const users = await col("users");
     const user = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsedEmail.data) + "$", "i") } });
-    if (!user || !(await bcrypt.compare(typeof password === "string" ? password : "", user.password_hash))) {
+    // VULN-008: compare SEMPRE roda (não há short-circuit no ||) — mesmo
+    // tempo para usuário inexistente e senha incorreta; mensagem igual.
+    const hash = user?.password_hash || DUMMY_HASH;
+    const okPassword = await bcrypt.compare(typeof password === "string" ? password : "", hash);
+    if (!user || !okPassword) {
       return res.status(401).json({ error: "Credenciais invalidas" });
     }
     const safe = { id: user.id, name: user.name, email: user.email, email_verified: user.email_verified !== false };
     const token = signToken(safe);
     setAuthCookie(res, token);
-    res.json({ user: safe, token });
+    // VULN-023: JWT só no cookie HttpOnly — não volta no body (client ignora).
+    res.json({ user: safe });
   } catch (e) {
     console.error("[login] Erro:", e.message);
     res.status(500).json({ error: "Erro interno no login" });
