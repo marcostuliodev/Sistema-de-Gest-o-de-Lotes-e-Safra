@@ -3,7 +3,7 @@ import { GridFSBucket, ObjectId } from "mongodb";
 import { col, getGridFSBucket } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { getPlanFeatures } from "../plans.js";
+import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -27,8 +27,8 @@ function validateImageFile(file) {
 }
 
 async function checkPhotoLimit(userId, count) {
-  const sub = await (await col("subscriptions")).findOne({ user_id: userId });
-  const activePlan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+  const { resolveEffectivePlan } = await import("../plans.js");
+  const { plan: activePlan } = await resolveEffectivePlan(userId);
   const features = getPlanFeatures(activePlan);
   const max = features.maxFotos;
   if (max === 0) {

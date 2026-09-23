@@ -40,7 +40,7 @@ export function PlanGate({
   blockedTitle,
   blockedDescription,
 }: PlanGateProps) {
-  const { plan, features, loading } = usePlan();
+  const { plan, features, loading, isCollaborator } = usePlan();
   const navigate = useNavigate();
 
   if (loading) {
@@ -63,6 +63,21 @@ export function PlanGate({
 
   // Bloqueado — renderiza fallback ou CTA padrão
   if (fallback) return <>{fallback}</>;
+
+  // Colaborador: recurso definido pelo proprietário, sem CTA de upgrade
+  if (isCollaborator) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-6 py-12 text-center">
+        <div className="mb-3 text-4xl">🔒</div>
+        <p className="font-semibold text-stone-700">
+          {blockedTitle || "Recurso definido pelo proprietário da conta"}
+        </p>
+        <p className="mt-1 max-w-sm text-sm text-stone-500">
+          {blockedDescription || "Este recurso é gerenciado pelo proprietário da conta."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 px-6 py-12 text-center">

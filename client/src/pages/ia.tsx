@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Badge, TextInput, EmptyState } from "../components/ui";
 import { Camera, Leaf } from "../components/icons";
+import { usePlan } from "../store/plan";
 import {
   analyzePhoto,
   fetchAiUsage,
@@ -71,6 +72,16 @@ function UsageBar({ usage }: { usage: AiUsage | null }) {
 
 function UpgradeCTA({ message }: { message: string }) {
   const navigate = useNavigate();
+  const { isCollaborator } = usePlan();
+  if (isCollaborator) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-6 py-12 text-center">
+        <div className="mb-3 text-4xl">🤖</div>
+        <p className="font-semibold text-stone-700">Recurso definido pelo proprietário da conta</p>
+        <p className="mt-1 max-w-sm text-sm text-stone-500">{message}</p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 px-6 py-12 text-center">
       <div className="mb-3 text-4xl">🤖</div>
@@ -447,6 +458,7 @@ export default function AgroIA() {
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [loadError, setLoadError] = useState("");
   const navigate = useNavigate();
+  const { isCollaborator } = usePlan();
 
   useEffect(() => {
     fetchAiUsage()
@@ -512,7 +524,7 @@ export default function AgroIA() {
         <ChatTab onUsage={setUsage} />
       )}
 
-      {usage && usage.limit === 0 && (
+      {usage && usage.limit === 0 && !isCollaborator && (
         <Button variant="subtle" onClick={() => navigate("/upgrade")}>
           Ver planos com IA
         </Button>

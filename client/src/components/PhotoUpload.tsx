@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button, Modal } from "./ui";
 import { Camera, Trash, X, Image } from "./icons";
+import { usePlan } from "../store/plan";
 import {
   uploadPhoto,
   getPlantioPhotos,
@@ -34,6 +35,7 @@ export function PhotoUpload({
   const [deleting, setDeleting] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
+  const { isCollaborator } = usePlan();
 
   const loadPhotos = useCallback(async () => {
     if (!plantioId) return;
@@ -84,7 +86,11 @@ export function PhotoUpload({
     if (!selectedFile) return;
 
     if (maxFotos !== Infinity && photos.length >= maxFotos) {
-      setError(`Limite de ${maxFotos} fotos atingido.`);
+      setError(
+        isCollaborator
+          ? `Limite de ${maxFotos} fotos atingido. Recurso definido pelo proprietário da conta.`
+          : `Limite de ${maxFotos} fotos atingido.`
+      );
       return;
     }
 
@@ -137,8 +143,12 @@ export function PhotoUpload({
             {limitLabel} fotos
           </span>
           {maxFotos === 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-              Upgrade necessário
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+              isCollaborator
+                ? "bg-stone-100 text-stone-600"
+                : "bg-amber-100 text-amber-800"
+            }`}>
+              {isCollaborator ? "Recurso definido pelo proprietário" : "Upgrade necessário"}
             </span>
           )}
         </div>

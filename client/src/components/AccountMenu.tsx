@@ -69,7 +69,7 @@ interface AccountMenuProps {
 
 export function AccountMenu({ open, onClose }: AccountMenuProps) {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
-  const { plan, features, status, trialRemaining } = usePlan();
+  const { plan, features, status, trialRemaining, isCollaborator, ownerName } = usePlan();
   const navigate = useNavigate();
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
@@ -208,46 +208,60 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           </section>
 
           {/* ── Plano ── */}
-          <section>
-            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Plano</h3>
-            <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
-                  {status === "trial" && (
-                    <Badge tone="blue">
-                      Trial{trialRemaining >= 0 ? ` ${trialRemaining}d` : ""}
-                    </Badge>
-                  )}
+          {!isCollaborator ? (
+            <section>
+              <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Plano</h3>
+              <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+                    {status === "trial" && (
+                      <Badge tone="blue">
+                        Trial{trialRemaining >= 0 ? ` ${trialRemaining}d` : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => go("/upgrade")}
+                    className="text-xs font-semibold text-green-700 underline-offset-2 hover:underline"
+                  >
+                    Gerenciar →
+                  </button>
                 </div>
-                <button
-                  onClick={() => go("/upgrade")}
-                  className="text-xs font-semibold text-green-700 underline-offset-2 hover:underline"
-                >
-                  Gerenciar →
-                </button>
+                <ul className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-stone-600">
+                  <li>Lotes: {features.maxLotes === 0 ? "—" : features.maxLotes}</li>
+                  <li>Plantios: {features.maxPlantios}</li>
+                  <li>Fotos: {features.maxFotos >= 10000 ? "∞" : features.maxFotos}</li>
+                  <li>Colab.: {features.maxColaboradores}</li>
+                  <li>IA/dia: {features.maxIaDia >= 10000 ? "∞" : features.maxIaDia}</li>
+                  <li>Clima: {features.climaAlertas ? "✔" : "—"}</li>
+                </ul>
+                {plan === "free" && (
+                  <Button className="w-full !text-xs" onClick={() => go("/upgrade")}>
+                    Fazer upgrade
+                  </Button>
+                )}
               </div>
-              <ul className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs text-stone-600">
-                <li>Lotes: {features.maxLotes === 0 ? "—" : features.maxLotes}</li>
-                <li>Plantios: {features.maxPlantios}</li>
-                <li>Fotos: {features.maxFotos >= 10000 ? "∞" : features.maxFotos}</li>
-                <li>Colab.: {features.maxColaboradores}</li>
-                <li>IA/dia: {features.maxIaDia >= 10000 ? "∞" : features.maxIaDia}</li>
-                <li>Clima: {features.climaAlertas ? "✔" : "—"}</li>
-              </ul>
-              {plan === "free" && (
-                <Button className="w-full !text-xs" onClick={() => go("/upgrade")}>
-                  Fazer upgrade
-                </Button>
-              )}
-            </div>
-          </section>
+            </section>
+          ) : (
+            <section>
+              <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Plano</h3>
+              <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Badge tone="blue">Colaborador</Badge>
+                </div>
+                <p className="text-xs text-stone-500">
+                  {ownerName ? `Acesso via: ${ownerName}` : "Plano definido pelo proprietário da conta"}
+                </p>
+              </div>
+            </section>
+          )}
 
           {/* ── Atalhos ── */}
           <section>
             <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Atalhos</h3>
             <div className="space-y-1">
-              {SHORTCUTS.map((s) => (
+              {SHORTCUTS.filter((s) => !(isCollaborator && s.to === "/upgrade")).map((s) => (
                 <button
                   key={s.to}
                   onClick={() => go(s.to)}

@@ -52,7 +52,7 @@ function Sparkles({}: {}) {
 
 export default function Layout() {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
-  const { plan, trialRemaining, status, blocked, clockWarning } = usePlan();
+  const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -120,7 +120,7 @@ export default function Layout() {
           )}
         </div>
       )}
-      {status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
+      {!isCollaborator && status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
         <div className="shrink-0 bg-blue-50 px-4 py-2 text-center text-xs font-medium text-blue-800">
           Seu trial termina em {trialRemaining} dia(s).{" "}
           <button onClick={() => navigate("/upgrade")} className="underline hover:text-blue-600">
@@ -139,9 +139,15 @@ export default function Layout() {
           <span className="text-sm font-extrabold text-stone-800">Agrolote</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
-          {status === "trial" && trialRemaining >= 0 && (
-            <span className="hidden text-xs text-stone-400 sm:inline">Trial {trialRemaining}d</span>
+          {isCollaborator ? (
+            <Badge tone="blue">Colaborador</Badge>
+          ) : (
+            <>
+              <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+              {status === "trial" && trialRemaining >= 0 && (
+                <span className="hidden text-xs text-stone-400 sm:inline">Trial {trialRemaining}d</span>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -177,18 +183,25 @@ export default function Layout() {
           ))}
         </nav>
         <div className="space-y-2 border-t border-stone-200 p-4">
-          {/* Plano badge + upgrade */}
-          <button
-            onClick={() => plan === "free" ? navigate("/upgrade") : setShowUpgrade(true)}
-            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-              plan === "free"
-                ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
-                : "bg-stone-50 text-stone-600 hover:bg-stone-100"
-            }`}
-          >
-            <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
-            {plan === "free" && <span className="ml-auto text-[10px]">Upgrade →</span>}
-          </button>
+          {/* Plano badge + upgrade (oculto para colaboradores) */}
+          {!isCollaborator && (
+            <button
+              onClick={() => plan === "free" ? navigate("/upgrade") : setShowUpgrade(true)}
+              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+                plan === "free"
+                  ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                  : "bg-stone-50 text-stone-600 hover:bg-stone-100"
+              }`}
+            >
+              <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+              {plan === "free" && <span className="ml-auto text-[10px]">Upgrade →</span>}
+            </button>
+          )}
+          {isCollaborator && (
+            <div className="flex w-full items-center gap-2 rounded-xl bg-stone-50 px-3 py-2 text-xs font-medium text-stone-600">
+              <Badge tone="blue">Colaborador</Badge>
+            </div>
+          )}
           <div
             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium ${
               online ? (synced ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700") : "bg-stone-100 text-stone-500"
@@ -240,7 +253,9 @@ export default function Layout() {
         </nav>
       </div>
 
-      <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      {!isCollaborator && (
+        <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
+      )}
       <AccountMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
       </div>
     </div>

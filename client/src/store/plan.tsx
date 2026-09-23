@@ -13,6 +13,7 @@ import { useAuth } from "./auth";
 import { validateStoredLicense, setStoredLicense } from "../lib/license";
 import { initClockGuard, sendHeartbeat } from "../lib/clock-guard";
 import { runIntegrityCheck, startIntegrityMonitoring } from "../lib/integrity";
+import { getMyAccess } from "../db/collaborators";
 
 export interface PlanFeatures {
   maxLotes: number;
@@ -34,6 +35,8 @@ interface PlanCtx {
   loading: boolean;
   blocked: boolean; // integrity check falhou
   clockWarning: boolean;
+  isCollaborator: boolean;
+  ownerName: string | null;
   refresh: () => Promise<void>;
   startTrial: (plan: string) => Promise<void>;
   openCheckout: (plan: string, billing: string) => Promise<string | null>;
@@ -62,6 +65,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [blocked, setBlocked] = useState(false);
   const [clockWarning, setClockWarning] = useState(false);
+  const [isCollaborator, setIsCollaborator] = useState(false);
+  const [ownerName, setOwnerName] = useState<string | null>(null);
 
   const fetchLicense = useCallback(async () => {
     if (!session) return;
@@ -85,6 +90,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           setFeatures({ ...FREE_FEATURES, ...(data.features || {}) });
           setStatus(data.status || "free");
           setTrialEnd(data.trialEnd || null);
+          setIsCollaborator(!!data.isCollaborator);
 
           if (data.license) {
             setStoredLicense(data.license);
@@ -102,6 +108,20 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             setTrialRemaining(-1);
           }
         }
+      }
+
+      // 3. Detecta se é colaborador (e nome do dono)
+      try {
+        const access = await getMyAccess();
+        if (access.length > 0) {
+          setIsCollaborator(true);
+          setOwnerName(access[0].owner_name || null);
+        } else {
+          setIsCollaborator(false);
+          setOwnerName(null);
+        }
+      } catch {
+        // silencioso — mantém o que tinha
       }
     } catch {
       // Em caso de erro, mantém o que tinha
@@ -176,7 +196,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       plan, features, status, trialEnd, trialRemaining,
-      loading, blocked, clockWarning,
+      loading, blocked, clockWarning, isCollaborator, ownerName,
       refresh: fetchLicense, startTrial, openCheckout,
     }}>
       {children}

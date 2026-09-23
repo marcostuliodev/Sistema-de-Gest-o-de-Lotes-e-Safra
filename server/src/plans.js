@@ -95,3 +95,20 @@ export function formatPrice(centavos) {
 
 /** Lista de planos pagos (exclui free). */
 export const PAID_PLANS = ["basico", "pro", "premium"];
+
+/**
+ * Resolve o plano efetivo de um usuário.
+ * Se for colaborador ativo, herda o plano do dono.
+ */
+export async function resolveEffectivePlan(userId) {
+  const { col } = await import("./db.js");
+  const collabsCol = await col("collaborators");
+  const collab = await collabsCol.findOne({ user_id: userId, status: "active" });
+
+  const lookupId = collab ? collab.owner_id : userId;
+
+  const sub = await (await col("subscriptions")).findOne({ user_id: lookupId });
+  const plan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+
+  return { plan, isCollaborator: !!collab, owner_id: collab?.owner_id || null, role: collab?.role || null };
+}

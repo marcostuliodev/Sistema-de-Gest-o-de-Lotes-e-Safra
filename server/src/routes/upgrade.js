@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, isValidPlan } from "../plans.js";
+import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, isValidPlan, resolveEffectivePlan } from "../plans.js";
 import { generateLicense, verifyLicense, getPublicKeyPem } from "../license.js";
 import { checkClock } from "../clock-guard.js";
 import { reportIntegrity, isUserBlocked } from "../integrity.js";
@@ -54,6 +54,14 @@ router.get("/public-key", (_req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
   try {
+    // Bloquear checkout para colaboradores
+    const { col } = await import("../db.js");
+    const collabsCol = await col("collaborators");
+    const asCollab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
+    if (asCollab) {
+      return res.status(403).json({ error: "Colaboradores nao podem gerenciar planos." });
+    }
+
     if (!STRIPE_SECRET) {
       return res.status(503).json({ error: "Stripe nao configurado. Defina STRIPE_SECRET_KEY." });
     }
@@ -182,6 +190,14 @@ function expressRawBody() {
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
   try {
+    // Bloquear trial para colaboradores
+    const { col } = await import("../db.js");
+    const collabsCol = await col("collaborators");
+    const asCollab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
+    if (asCollab) {
+      return res.status(403).json({ error: "Colaboradores nao podem gerenciar planos." });
+    }
+
     const { plan } = req.body || {};
     if (!isValidPlan(plan) || plan === "free") {
       return res.status(400).json({ error: "Plano invalido" });
@@ -245,14 +261,26 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
   try {
+    // Plano efetivo: colaboradores herdam o plano do dono
+    const { plan, isCollaborator, owner_id, role } = await resolveEffectivePlan(req.user.uid);
+
     const subs = await col("subscriptions");
-    const sub = await subs.findOne({ user_id: req.user.uid });
+    const lookupId = owner_id || req.user.uid;
+    const sub = await subs.findOne({ user_id: lookupId });
 
     if (!sub || (sub.plan === "free" && sub.status !== "trial")) {
-      return res.json({ plan: "free", features: getPlanFeatures("free"), license: null, status: "free" });
+      return res.json({
+        plan: "free",
+        features: getPlanFeatures("free"),
+        license: null,
+        status: "free",
+        isCollaborator,
+        owner_id,
+        role,
+      });
     }
 
-    let activePlan = sub.plan;
+    let activePlan = plan;
     let license = null;
 
     if (sub.status === "trial" && sub.trial_started_at) {
@@ -260,10 +288,12 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
       trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
 
       if (new Date() > trialEnd) {
-        await subs.updateOne(
-          { user_id: req.user.uid },
-          { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
-        );
+        if (!isCollaborator) {
+          await subs.updateOne(
+            { user_id: lookupId },
+            { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
+          );
+        }
         activePlan = "free";
       } else {
         activePlan = sub.trial_plan;
@@ -289,6 +319,9 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
       trialEnd: sub.status === "trial" && sub.trial_started_at
         ? new Date(new Date(sub.trial_started_at).getTime() + TRIAL_DAYS * 86400000).toISOString()
         : null,
+      isCollaborator,
+      owner_id,
+      role,
     });
   } catch (e) {
     console.error("[license] Erro:", e.message);

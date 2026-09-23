@@ -19,7 +19,7 @@ import sharp from "sharp";
 import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { getPlanFeatures } from "../plans.js";
+import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
 import { aiChat, parseAiJson, MODEL, geminiKey } from "../gemini.js";
 
 const router = Router();
@@ -140,8 +140,9 @@ function today() {
 }
 
 async function resolveActivePlan(userId) {
-  const sub = await (await col("subscriptions")).findOne({ user_id: userId });
-  return sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+  const { resolveEffectivePlan } = await import("../plans.js");
+  const { plan } = await resolveEffectivePlan(userId);
+  return plan;
 }
 
 async function getUsage(userId) {

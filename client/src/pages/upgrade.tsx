@@ -55,7 +55,7 @@ const PLANS = [
 const PLAN_ORDER = ["free", "basico", "pro", "premium"];
 
 export default function Upgrade() {
-  const { plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout } = usePlan();
+  const { plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout, isCollaborator } = usePlan();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
@@ -63,6 +63,29 @@ export default function Upgrade() {
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
+
+  // Colaboradores não podem gerenciar planos — redireciona
+  if (isCollaborator) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-xl font-bold text-stone-800">Planos & Assinatura</h1>
+          <p className="text-sm text-stone-500">
+            Plano definido pelo proprietário da conta.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-stone-50 p-6 text-center">
+          <p className="font-semibold text-stone-700">Acesso via colaborador</p>
+          <p className="mt-1 text-sm text-stone-500">
+            Você está acessando como colaborador. O plano é gerenciado pelo proprietário da conta.
+          </p>
+          <Button className="mt-4" onClick={() => navigate("/")}>
+            Voltar ao Painel
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   async function handleStartTrial(planId: string) {
     setBusy(planId);

@@ -13,6 +13,13 @@ router.use(authMiddleware);
 
 // POST /api/collaborators/invite - Invite a collaborator
 router.post("/invite", asyncHandler(async (req, res) => {
+  // Bloquear convites feitos por colaboradores
+  const collabsCol = await col("collaborators");
+  const asCollab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
+  if (asCollab) {
+    return res.status(403).json({ error: "Colaboradores nao podem convidar outros colaboradores." });
+  }
+
   const { email, role, password } = req.body || {};
 
   if (!email || typeof email !== "string") {
@@ -38,9 +45,10 @@ router.post("/invite", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Voce nao pode convidar a si mesmo" });
   }
 
-  // Check plan limit
-  const sub = await (await col("subscriptions")).findOne({ user_id: req.user.uid });
-  const activePlan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+  // Check plan limit (colaborador herda o plano do dono)
+  const { resolveEffectivePlan } = await import("../plans.js");
+  const effective = await resolveEffectivePlan(req.user.uid);
+  const activePlan = effective.plan;
   const features = getPlanFeatures(activePlan);
   const maxColab = features.maxColaboradores;
 
@@ -52,7 +60,6 @@ router.post("/invite", asyncHandler(async (req, res) => {
   }
 
   // Count current active collaborators
-  const collabsCol = await col("collaborators");
   const currentCount = await collabsCol.countDocuments({
     owner_id: req.user.uid,
     status: { $in: ["pending", "active"] },

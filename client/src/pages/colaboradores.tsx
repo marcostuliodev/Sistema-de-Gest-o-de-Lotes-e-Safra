@@ -9,14 +9,16 @@ import {
   acceptInvite,
   declineInvite,
   getPendingInvites,
+  getMyAccess,
   type Collaborator,
   type CollaboratorAccess,
 } from "../db/collaborators";
 
 export default function Colaboradores() {
-  const { features } = usePlan();
+  const { features, isCollaborator } = usePlan();
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [pendingInvites, setPendingInvites] = useState<CollaboratorAccess[]>([]);
+  const [myAccess, setMyAccess] = useState<CollaboratorAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -32,12 +34,23 @@ export default function Colaboradores() {
   async function loadData() {
     setLoading(true);
     try {
-      const [collabs, pending] = await Promise.all([
-        listCollaborators(),
-        getPendingInvites(),
-      ]);
-      setCollaborators(collabs);
-      setPendingInvites(pending);
+      if (isCollaborator) {
+        // Colaborador: vê apenas convites pendentes e seus acessos
+        const [pending, access] = await Promise.all([
+          getPendingInvites(),
+          getMyAccess(),
+        ]);
+        setPendingInvites(pending);
+        setMyAccess(access);
+        setCollaborators([]);
+      } else {
+        const [collabs, pending] = await Promise.all([
+          listCollaborators(),
+          getPendingInvites(),
+        ]);
+        setCollaborators(collabs);
+        setPendingInvites(pending);
+      }
     } catch (err) {
       console.error("Erro ao carregar colaboradores:", err);
     } finally {
@@ -47,7 +60,8 @@ export default function Colaboradores() {
 
   useEffect(() => {
     loadData();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCollaborator]);
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -96,7 +110,7 @@ export default function Colaboradores() {
     }
   }
 
-  if (maxColab === 0) {
+  if (maxColab === 0 && !isCollaborator) {
     return (
       <div className="space-y-4">
         <div>
@@ -116,6 +130,99 @@ export default function Colaboradores() {
     );
   }
 
+  // ── Visão do colaborador: convites pendentes + acessos ativos ──
+  if (isCollaborator) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-xl font-bold text-stone-800">Colaboradores</h1>
+          <p className="text-sm text-stone-500">Convites e acessos de colaboração.</p>
+        </div>
+
+        {/* Pending Invites */}
+        {pendingInvites.length > 0 && (
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold text-stone-600">Convites Pendentes</h2>
+            <div className="space-y-2">
+              {pendingInvites.map((invite) => (
+                <div
+                  key={invite.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <Clock className="text-amber-600" />
+                    <div>
+                      <p className="text-sm font-medium text-stone-800">
+                        Convite de {invite.owner_name}
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        {invite.role === "admin" ? "Acesso total" : "Somente leitura"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      onClick={() => handleAccept(invite.id)}
+                      className="text-xs"
+                    >
+                      <Check /> Aceitar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleDecline(invite.id)}
+                      className="text-xs"
+                    >
+                      <X /> Recusar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Acessos ativos */}
+        {loading ? (
+          <p className="text-sm text-stone-400">Carregando...</p>
+        ) : myAccess.length === 0 && pendingInvites.length === 0 ? (
+          <EmptyState
+            title="Nenhum acesso"
+            subtitle="Você ainda não foi convidado para colaborar em nenhuma conta."
+          />
+        ) : myAccess.length > 0 ? (
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold text-stone-600">Acessos Ativos</h2>
+            <div className="space-y-2">
+              {myAccess.map((access) => (
+                <div
+                  key={access.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <Mail className="text-green-600" />
+                    <div>
+                      <p className="text-sm font-medium text-stone-800">
+                        {access.owner_name}
+                      </p>
+                      <p className="text-xs text-stone-500">{access.owner_email}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge tone={access.role === "admin" ? "blue" : "gray"}>
+                      {access.role === "admin" ? "Admin" : "Visualizador"}
+                    </Badge>
+                    <Badge tone="green">Ativo</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -124,12 +231,16 @@ export default function Colaboradores() {
           <p className="text-sm text-stone-500">Gerencie quem tem acesso aos seus dados.</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-stone-500">
-            {currentCount}/{maxColab} colaboradores
-          </span>
-          <Button onClick={() => setShowInviteModal(true)} disabled={!canInvite}>
-            <Plus /> Convidar
-          </Button>
+          {!isCollaborator && (
+            <span className="text-sm text-stone-500">
+              {currentCount}/{maxColab} colaboradores
+            </span>
+          )}
+          {!isCollaborator && (
+            <Button onClick={() => setShowInviteModal(true)} disabled={!canInvite}>
+              <Plus /> Convidar
+            </Button>
+          )}
         </div>
       </div>
 
@@ -184,9 +295,11 @@ export default function Colaboradores() {
           title="Nenhum colaborador"
           subtitle="Convide pessoas para colaborar nos seus projetos agricolas."
           action={
-            <Button onClick={() => setShowInviteModal(true)} disabled={!canInvite}>
-              <Plus /> Convidar Colaborador
-            </Button>
+            !isCollaborator && (
+              <Button onClick={() => setShowInviteModal(true)} disabled={!canInvite}>
+                <Plus /> Convidar Colaborador
+              </Button>
+            )
           }
         />
       ) : (
