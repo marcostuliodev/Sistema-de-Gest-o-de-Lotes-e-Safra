@@ -1,9 +1,9 @@
-import { db, isOnline, mergeLocalWith } from "./db";
+import { db, isOnline, mergeLocalWith, type OutboxRow } from "./db";
 import { pushSync } from "./api";
-import type { EntityName, SyncOp } from "./types";
+import type { EntityName } from "./types";
 import type { Table } from "dexie";
 
-const ENTITY_TABLES: EntityName[] = ["lotes", "plantios", "insumos", "gastos", "colheitas"];
+const SYNC_BATCH_SIZE = 40; // abaixo do limite de 100 ops do servidor
 
 let syncing = false;
 
@@ -32,65 +32,62 @@ export async function outboxCount() {
 }
 
 /**
- * Sobe o outbox (criações/edições/deletes offline) + TODOS os dados locais.
- * Por que mandar tudo? O disco gratuito do Render (e de outros PaaS) é volátil:
- * se o servidor reiniciar vazio, este re-upload reconstrói os dados do aparelho
- * no servidor automaticamente — os ids são UUIDs, então não cria duplicidade.
+ * Envia apenas o que está pendente. Reenviar todos os registros locais a cada
+ * sync duplicava operações e podia ultrapassar o limite de 100 do servidor,
+ * deixando o outbox travado para sempre.
  */
-async function buildOps(): Promise<SyncOp[]> {
-  // Envia primeiro os registros locais (upserts) e DEPOIS o outbox. Assim, um
-  // delete que estava no outbox é aplicado por último e "vence" — caso
-  // contrário o item deletado seria re-inserido pelo upsert e voltaria a aparecer.
-  const ops: SyncOp[] = [];
-  for (const entity of ENTITY_TABLES) {
-    const records = await (db[entity] as Table<{ id: string }, string>).toArray();
-    for (const rec of records) ops.push({ entity, action: "upsert", data: rec });
-  }
-  const outboxOps = (await db.outbox.orderBy("created_at").toArray()).map((r) => r.op);
-  return ops.concat(outboxOps);
+async function pendingOps(): Promise<OutboxRow[]> {
+  return db.outbox.orderBy("created_at").toArray();
 }
 
-async function commit(result: { snapshot: any; serverTime: string }) {
-  // mergeLocalWith já abre sua própria transação. Não podemos aninhar uma
-  // transação de outbox-only aqui, senão o Dexie lança erro ao tocar as
-  // outras tabelas e o outbox nunca é limpo (UI fica "Sincronizando" p/ sempre).
-  try {
-    await mergeLocalWith(result.snapshot);
-  } catch (e) {
-    // Os dados já foram confirmados no servidor (recebemos o snapshot), então
-    // seguimos e limpamos o outbox mesmo se o merge local falhar.
-    console.error("mergeLocalWith falhou:", e);
-  }
-  await db.outbox.clear();
+async function applySnapshot(result: { snapshot: any; serverTime: string }) {
+  // Se o merge falhar, não removemos o lote: a operação será tentada novamente.
+  await mergeLocalWith(result.snapshot);
   await db.meta.put({ key: "last_sync", value: result.serverTime });
-  window.dispatchEvent(new CustomEvent("agrolote:synced"));
 }
 
 async function runSync(): Promise<boolean> {
   if (syncing || !isOnline()) return false;
+  const pending = await pendingOps();
+  if (pending.length === 0) return false;
+
   syncing = true;
   try {
-    const result = await pushSync(await buildOps());
-    if (result?.snapshot) {
-      await commit(result);
-      return true;
+    for (let start = 0; start < pending.length; start += SYNC_BATCH_SIZE) {
+      const batch = pending.slice(start, start + SYNC_BATCH_SIZE);
+      const result = await pushSync(batch.map((row) => row.op));
+      if (!result?.snapshot) return false;
+
+      await applySnapshot(result);
+      const ids = batch
+        .map((row) => row.id)
+        .filter((id): id is number => typeof id === "number");
+      if (ids.length > 0) await db.outbox.bulkDelete(ids);
     }
+
+    window.dispatchEvent(new CustomEvent("agrolote:synced"));
+    return true;
   } catch (err) {
     if (import.meta.env.DEV) console.warn("Sync falhou (modo offline):", err);
+    window.dispatchEvent(new CustomEvent("agrolote:sync-error"));
+    return false;
   } finally {
     syncing = false;
   }
-  return false;
 }
 
-/** Baixa o snapshot do servidor para o banco local (usado após o login). */
+/** Baixa o snapshot do servidor sem apagar operações offline pendentes. */
 export async function pullServer() {
-  const result = await pushSync(await buildOps());
-  if (result?.snapshot) {
-    await commit(result);
+  if (!isOnline()) return false;
+  try {
+    const result = await pushSync([]);
+    if (!result?.snapshot) return false;
+    await applySnapshot(result);
+    window.dispatchEvent(new CustomEvent("agrolote:synced"));
     return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;

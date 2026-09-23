@@ -76,11 +76,16 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
 
   useEffect(() => {
     if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open, onClose]);
 
   if (!open || !session) return null;
@@ -144,15 +149,18 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60]" style={{overflow: "hidden"}} role="dialog" aria-modal="true" aria-label="Menu da conta">
+    <div className="fixed inset-0 z-[60] overscroll-contain" style={{ overflow: "hidden" }} role="dialog" aria-modal="true" aria-label="Menu da conta">
       {/* Overlay */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40" aria-hidden="true" onClick={onClose} />
 
-      {/* Painel — esquerda */}
-      <div className="absolute inset-y-0 left-0 flex w-[300px] max-w-[88vw] flex-col overflow-y-auto bg-white shadow-2xl">
-        {/* Cabeçalho */}
-        <div className="flex items-start justify-between gap-2 border-b border-stone-200 bg-gradient-to-br from-green-700 to-emerald-700 px-4 py-5 text-white">
-          <div className="flex min-w-0 items-center gap-3">
+      {/* Painel — largura limitada, X sempre acessível e conteúdo rolável */}
+      <div
+        className="absolute inset-y-0 left-0 flex w-[88vw] max-w-[320px] min-w-0 flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-white shadow-2xl"
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        {/* Cabeçalho fixo dentro do painel */}
+        <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-2 border-b border-stone-200 bg-gradient-to-br from-green-700 to-emerald-700 px-4 py-5 text-white">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
               {initials}
             </div>
@@ -164,7 +172,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           <button
             onClick={onClose}
             aria-label="Fechar menu"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 hover:bg-white/15 hover:text-white"
+            className="flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-lg text-white/80 hover:bg-white/15 hover:text-white"
           >
             <X />
           </button>
@@ -279,7 +287,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
                 <button
                   key={s.to}
                   onClick={() => go(s.to)}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100"
+                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100"
                 >
                   <span className="text-lg text-stone-500">{s.icon}</span>
                   {s.label}
@@ -321,7 +329,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
         <div className="border-t border-stone-200 p-4 space-y-2">
           <button
             onClick={() => void clearCache()}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-stone-100 px-3 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-200"
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-stone-100 px-3 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-200"
           >
             <Trash />
             Limpar cache
@@ -331,7 +339,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
               onClose();
               logout();
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
           >
             <Logout />
             Sair da conta

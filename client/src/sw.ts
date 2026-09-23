@@ -1,5 +1,5 @@
-import { precacheAndRoute } from "workbox-precaching";
-import { registerRoute } from "workbox-routing";
+import { createHandlerBoundToURL, precacheAndRoute } from "workbox-precaching";
+import { NavigationRoute, registerRoute } from "workbox-routing";
 import { NetworkFirst, NetworkOnly } from "workbox-strategies";
 
 // Em projetos com lib DOM, `self` não é tipado como ServiceWorkerGlobalScope.
@@ -18,18 +18,14 @@ sw.addEventListener("activate", (event: any) =>
   )
 );
 
-// Navegações (HTML) SEMPRE tentam a rede primeiro — senão o precache de
-// index.html segura o shell antigo e novos deploys (ex.: botão AgroIA)
-// nunca aparecem até o usuário limpar o cache.
+// Navegações usam o shell HTML precacheado. Isso permite abrir uma rota
+// profunda como /lotes ou /plantios mesmo sem rede e sem visita anterior.
+precacheAndRoute(((self as any).__WB_MANIFEST) || []);
 registerRoute(
-  ({ request }: { request: Request }) => request.mode === "navigate",
-  new NetworkFirst({
-    cacheName: "pages",
-    networkTimeoutSeconds: 4,
+  new NavigationRoute(createHandlerBoundToURL("/index.html"), {
+    denylist: [/^\/api\//],
   })
 );
-
-precacheAndRoute(((self as any).__WB_MANIFEST) || []);
 
 // Cache de APENAS endpoints públicos/estáticos (NetworkFirst).
 // NUNCA cachear respostas autenticadas/sensíveis: /api/sync, /api/auth,
