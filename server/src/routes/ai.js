@@ -40,19 +40,26 @@ Indique ações concretas. Se não tiver certeza, diga honestamente. Nunca inven
 
 Não responda assuntos fora do agronegócio, orquídeas ou plantas.`;
 
-const ANALYZE_SYSTEM_PROMPT = `Analise a foto e responda APENAS com JSON válido (sem texto fora):
+const ANALYZE_SYSTEM_PROMPT = `Analise a foto e responda APENAS com JSON válido (sem texto fora).
+
+EXEMPLO de resposta correta para uma orquídea:
 {
-  "resumo": "1-3 frases objetivas",
-  "identificacao": {"especie": "nome comum/científico ou 'Não identificada'", "confianca": "alta|media|baixa"},
-  "saude": "saudavel|atencao|doente",
-  "problemas": [{"nome": "ex: Mancha fúngica", "severidade": "baixa|media|alta", "descricao": "o que viu"}],
-  "cuidados": ["ação prática"],
-  "rega": "orientação de rega",
-  "adubacao": "orientação de adubação",
-  "luminosidade": "orientação de luz",
-  "substrato": "orientação de substrato"
+  "resumo": "Orquídea Phalaenopsis com flores rosa e brancas, saudável.",
+  "identificacao": {"especie": "Phalaenopsis (Orquídea Borboleta)", "confianca": "alta"},
+  "saude": "saudavel",
+  "problemas": [],
+  "cuidados": ["Manter vaso com boa ventilação"],
+  "rega": "Regar 2x por semana, substrato deve secar entre regas",
+  "adubacao": "Adubo para orquídeas 1x por semana na fase de crescimento",
+  "luminosidade": "Luz indireta forte, sem sol direto",
+  "substrato": "Casca de pinus e esfagno"
 }
-Se não for planta: especie "Não identificada", saude "atencao", problemas [], cuidados [].`;
+
+REGRAS:
+- identificacao.especie: SE você identificou a planta na foto, PREENCHA com o nome. Só use "Não identificada" se realmente não conseguir ver.
+- identificacao.confianca: "alta" se tem certeza, "media" se quase certeza, "baixa" se duvidosa.
+- Preencha TODOS os campos: resumo, identificacao, saude, problemas, cuidados, rega, adubacao, luminosidade, substrato.
+- Se não for planta: especie "Não identificada", saude "atencao", problemas [], cuidados [], campos de cuidado vazios.`;
 
 // ── Cache de análise (evita re-analisar mesma foto) ───────────────────
 
