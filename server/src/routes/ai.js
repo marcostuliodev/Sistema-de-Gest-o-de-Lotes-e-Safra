@@ -21,7 +21,7 @@ import { col } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
-import { aiChat, parseAiJson, MODEL, geminiKey } from "../gemini.js";
+import { aiChat, parseAiJson, MODEL, geminiKey, geminiKeys } from "../gemini.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -42,7 +42,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 // Teto do corpo multipart: 5MB (arquivo) + 50KB de margem p/ fields/boundary
 const MULTIPART_BODY_LIMIT = MAX_IMAGE_BYTES + 50 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_CHAT_MESSAGES = 15;
+const MAX_CHAT_MESSAGES = 20; // alinhado com cliente (ia.tsx envia slice(-20))
 const MAX_CONTENT_CHARS = 3000;
 
 // ── System prompts (encurtados para economizar tokens) ────────────────
@@ -458,8 +458,10 @@ router.post("/analyze", asyncHandler(async (req, res) => {
 // ── GET /api/ai/status ────────────────────────────────────────────────
 
 router.get("/status", (_req, res) => {
+  const keys = geminiKeys();
   res.json({
-    configured: !!geminiKey(),
+    configured: keys.length > 0,
+    keyCount: keys.length, // quantas chaves Gemini configuradas (rotação)
     model: MODEL,
     optimizations: {
       imageCompression: "1024x1024 JPEG 80%",

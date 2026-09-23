@@ -144,6 +144,8 @@ export async function fetchLicense(): Promise<{
   license: string | null;
   status: string;
   trialEnd: string | null;
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodEnd?: string | null;
 }> {
   const res = await request("/api/upgrade/license");
   if (!res.ok) throw new Error("Erro ao carregar licença");
@@ -167,5 +169,13 @@ export async function createCheckout(plan: string, billing: string): Promise<{ u
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Erro ao criar sessão de pagamento");
+  return data;
+}
+
+/** Abre o Stripe Customer Portal (cancelar assinatura, trocar cartão, reativar). */
+export async function openBillingPortal(): Promise<{ url: string }> {
+  const res = await request("/api/upgrade/portal", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Erro ao abrir portal de assinatura");
   return data;
 }

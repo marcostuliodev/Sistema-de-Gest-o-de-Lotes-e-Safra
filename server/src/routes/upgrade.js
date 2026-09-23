@@ -1,14 +1,22 @@
 /**
- * Rotas de upgrade, checkout, webhook e licença.
+ * Rotas de upgrade, checkout, webhook, licença e cancelamento.
  *
  * Fluxo:
  * 1. POST /checkout       → Cria sessão Stripe Checkout
- * 2. POST /webhook         → Recebe eventos do Stripe, atualiza assinatura
- * 3. POST /trial           → Inicia trial de um plano
- * 4. GET  /license         → Retorna licença assinada do usuário
- * 5. POST /verify          → Verifica licença (check periódico)
- * 6. POST /heartbeat       → Envia device time para check de relógio
- * 7. POST /integrity       → Envia relatório de integridade do dispositivo
+ * 2. POST /portal         → Abre Stripe Customer Portal (cancelar/gerenciar)
+ * 3. POST /webhook        → Recebe eventos do Stripe, atualiza assinatura
+ * 4. POST /trial          → Inicia trial de um plano
+ * 5. GET  /license        → Retorna licença assinada do usuário
+ * 6. POST /verify         → Verifica licença (check periódico)
+ * 7. POST /heartbeat      → Envia device time para check de relógio
+ * 8. POST /integrity      → Envia relatório de integridade do dispositivo
+ *
+ * Cancelamento (Stripe Customer Portal):
+ * - Usuário clica em "Cancelar assinatura" → POST /portal → URL do Stripe
+ * - No Portal o usuário escolhe cancelar (fim do período ou imediato)
+ * - Webhook customer.subscription.updated persiste cancel_at_period_end
+ * - Webhook customer.subscription.deleted → deactivatePlan (downgrade free)
+ * - Acesso é mantido até o fim do período pago; dados NÃO são apagados.
  */
 
 import express, { Router } from "express";
@@ -146,6 +154,48 @@ router.post("/checkout", authMiddleware, requireNotBlocked, asyncHandler(async (
 }));
 
 // ═══════════════════════════════════════════════════════════════════════
+// POST /api/upgrade/portal — Stripe Customer Portal (cancelar/gerenciar)
+// ═══════════════════════════════════════════════════════════════════════
+// O Portal do Stripe cuida da UI de cancelamento (fim do período ou
+// imediato), troca de cartão e reativação. O webhook já trata o efeito.
+router.post("/portal", authMiddleware, requireNotBlocked, asyncHandler(async (req, res) => {
+  try {
+    // Bloquear para colaboradores (não gerenciam plano)
+    const { col } = await import("../db.js");
+    const collabsCol = await col("collaborators");
+    const asCollab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
+    if (asCollab) {
+      return res.status(403).json({ error: "Colaboradores nao podem gerenciar planos." });
+    }
+
+    if (!STRIPE_SECRET) {
+      return res.status(503).json({ error: "Stripe nao configurado. Defina STRIPE_SECRET_KEY." });
+    }
+
+    const subs = await col("subscriptions");
+    const sub = await subs.findOne({ user_id: req.user.uid });
+    const customerId = sub?.stripe_customer_id;
+
+    if (!customerId) {
+      return res.status(400).json({ error: "Nenhuma assinatura encontrada para gerenciar." });
+    }
+
+    // Portal do Stripe: cancelar (fim/imediato), reativar, trocar cartão.
+    // Só bloqueia free puro SEM customer Stripe (nunca assinou).
+    const stripe = stripeClient();
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${APP_URL}/upgrade?portal=1`,
+    });
+
+    res.json({ url: session.url });
+  } catch (e) {
+    console.error("[portal] Erro:", e.message);
+    res.status(500).json({ error: IS_PROD ? "Erro ao abrir portal de assinatura" : (e.message || "Erro ao abrir portal") });
+  }
+}));
+
+// ═══════════════════════════════════════════════════════════════════════
 // POST /api/upgrade/webhook — Recebe eventos do Stripe
 // ═══════════════════════════════════════════════════════════════════════
 // NOTA: Este endpoint NÃO usa authMiddleware — o Stripe valida o signature.
@@ -212,9 +262,59 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
       }
       case "customer.subscription.updated": {
         const sub = event.data.object;
+        // Persiste estado de cancelamento agendado e status para a UI.
+        // Stripe envia status: active + cancel_at_period_end:true quando o
+        // usuário cancelou no Portal mas o período ainda não acabou.
+        const subs = await col("subscriptions");
+        const periodEnd =
+          sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : undefined;
+        const set = {
+          cancel_at_period_end: !!sub.cancel_at_period_end,
+          canceled_at: sub.canceled_at ? new Date(sub.canceled_at * 1000).toISOString() : null,
+          updated_at: new Date().toISOString(),
+        };
+        // Mapeia status Stripe → status interno (mantém active em cancel_at_period_end)
+        if (sub.status === "active" || sub.status === "trialing") {
+          set.status = "active";
+        } else if (sub.status === "canceled") {
+          // O evento deleted logo abaixo faz deactivatePlan; aqui só marca.
+          set.status = "cancelled";
+        } else if (sub.status === "past_due" || sub.status === "unpaid") {
+          set.status = sub.status; // mantém acesso mas sinaliza para UI
+        }
+        if (periodEnd) set.current_period_end = periodEnd;
+
+        try {
+          await subs.updateOne(
+            { stripe_subscription_id: sub.id },
+            { $set: set }
+          );
+        } catch (e) {
+          console.error("[webhook] Falha ao persistir subscription.updated:", e.message);
+        }
         if (sub.status === "past_due" || sub.status === "unpaid") {
-          // Ainda mantém acesso, mas marca aviso
           console.warn(`[webhook] Assinatura ${sub.id} com status ${sub.status}`);
+        }
+        break;
+      }
+      case "invoice.payment_failed": {
+        // Falha de cobrança (cartão recusado etc) — marca past_due para UI.
+        const invoice = event.data.object;
+        const subId =
+          invoice.subscription ||
+          invoice.parent?.subscription_details?.subscription ||
+          null;
+        if (subId) {
+          try {
+            const subs = await col("subscriptions");
+            await subs.updateOne(
+              { stripe_subscription_id: subId },
+              { $set: { status: "past_due", payment_failed_at: new Date().toISOString(), updated_at: new Date().toISOString() } }
+            );
+          } catch (e) {
+            console.error("[webhook] Falha ao marcar past_due:", e.message);
+          }
+          console.warn(`[webhook] Pagamento falhou para assinatura ${subId}`);
         }
         break;
       }
@@ -372,7 +472,8 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
           console.error("[license] generateLicense error:", e.message);
         }
       }
-    } else if (sub.status === "active" && sub.plan !== "free") {
+    } else if ((sub.status === "active" || sub.status === "past_due") && sub.plan !== "free") {
+      // past_due mantém acesso até o Stripe cancelar (deleted → deactivatePlan)
       try {
         license = generateLicense(req.user.uid, activePlan, sub.stripe_subscription_id);
       } catch (e) {
@@ -388,6 +489,10 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
       trialEnd: sub.status === "trial" && sub.trial_started_at
         ? new Date(new Date(sub.trial_started_at).getTime() + TRIAL_DAYS * 86400000).toISOString()
         : null,
+      // Estado de cancelamento (para UI: banner "cancelada em XX")
+      cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+      currentPeriodEnd: sub.current_period_end || null,
+      canceledAt: sub.canceled_at || null,
       isCollaborator,
       owner_id,
       role,
@@ -473,6 +578,10 @@ async function activatePlan(userId, plan, billing, stripeSubId) {
         // trial_started_at NÃO é limpo: mantém a marca de "trial já usado"
         // para impedir novo trial após cancelamento/ciclo pago.
         trial_plan: null,
+        // Reativação limpa flags de cancelamento anterior
+        cancel_at_period_end: false,
+        canceled_at: null,
+        payment_failed_at: null,
         updated_at: now.toISOString(),
       },
     },
@@ -521,10 +630,13 @@ async function deactivatePlan(stripeSubId) {
         plan: "free",
         status: "cancelled",
         stripe_subscription_id: null,
+        cancel_at_period_end: false,
+        canceled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
     }
   );
+  console.log(`[upgrade] Assinatura ${stripeSubId} cancelada → plano free`);
 }
 
 export default router;

@@ -55,7 +55,10 @@ const PLANS = [
 const PLAN_ORDER = ["free", "basico", "pro", "premium"];
 
 export default function Upgrade() {
-  const { plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout, isCollaborator, ownerName, loading } = usePlan();
+  const {
+    plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout,
+    isCollaborator, ownerName, loading, cancelAtPeriodEnd, currentPeriodEnd, openPortal,
+  } = usePlan();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
@@ -63,6 +66,7 @@ export default function Upgrade() {
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
+  const fromPortal = searchParams.get("portal");
 
   // Aguarda o fetch da licença antes de decidir (evita flash de UI de dono)
   if (loading) {
@@ -124,6 +128,27 @@ export default function Upgrade() {
     }
   }
 
+  async function handlePortal() {
+    setBusy("portal");
+    try {
+      const url = await openPortal();
+      if (url) window.location.href = url;
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function formatPeriodEnd(iso: string | null): string {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch {
+      return iso;
+    }
+  }
+
   function planLevel(p: string) {
     return PLAN_ORDER.indexOf(p);
   }
@@ -152,12 +177,67 @@ export default function Upgrade() {
                   Trial: {trialRemaining} dia(s) restante(s)
                 </p>
               )}
+              {status === "active" && !cancelAtPeriodEnd && currentPeriodEnd && (
+                <p className="text-xs text-stone-500">
+                  Renova em: {formatPeriodEnd(currentPeriodEnd)}
+                </p>
+              )}
+              {status === "past_due" && (
+                <p className="text-sm font-medium text-red-600">
+                  Pagamento pendente — atualize seu cartão.
+                </p>
+              )}
             </div>
-            <div className="text-3xl">
-              <Leaf />
+            <div className="text-right">
+              <div className="mb-2 text-3xl">
+                <Leaf />
+              </div>
+              {(status === "active" || status === "past_due") && !isCollaborator && (
+                <Button
+                  variant="subtle"
+                  className="!text-xs !text-red-600 hover:!bg-red-50"
+                  disabled={busy !== null}
+                  onClick={() => void handlePortal()}
+                >
+                  {busy === "portal" ? "Abrindo..." : cancelAtPeriodEnd ? "Gerenciar" : "Cancelar assinatura"}
+                </Button>
+              )}
             </div>
           </div>
+          {!cancelAtPeriodEnd && status === "active" && (
+            <p className="mt-2 text-xs text-stone-500">
+              Ao cancelar, você mantém o acesso até o fim do período pago e depois volta ao plano Gratuito.
+            </p>
+          )}
         </Card>
+      )}
+
+      {/* Banner: cancelamento agendado */}
+      {cancelAtPeriodEnd && status === "active" && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="font-semibold text-amber-800">
+            Sua assinatura será cancelada em {formatPeriodEnd(currentPeriodEnd)}.
+          </p>
+          <p className="mt-1 text-sm text-amber-700">
+            Depois disso você volta para o plano Gratuito. Seus dados serão mantidos (apenas os limites do free passam a valer).
+          </p>
+          <Button
+            variant="subtle"
+            className="mt-3 !text-xs"
+            disabled={busy !== null}
+            onClick={() => void handlePortal()}
+          >
+            {busy === "portal" ? "Abrindo..." : "Reativar / Gerenciar →"}
+          </Button>
+        </div>
+      )}
+
+      {/* Banner: voltou do Portal */}
+      {fromPortal && !cancelAtPeriodEnd && status === "active" && (
+        <div className="rounded-2xl bg-blue-50 p-4 text-center">
+          <p className="font-semibold text-blue-800">Portal de assinatura</p>
+          <p className="text-sm text-blue-700">Suas alterações foram aplicadas. Pode levar alguns segundos.</p>
+        </div>
       )}
 
       {/* Success/Cancel message */}

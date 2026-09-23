@@ -29,7 +29,7 @@ export interface PlanFeatures {
 interface PlanCtx {
   plan: string;
   features: PlanFeatures;
-  status: string; // 'active' | 'trial' | 'expired' | 'free'
+  status: string; // 'active' | 'trial' | 'expired' | 'free' | 'cancelled' | 'past_due'
   trialEnd: string | null;
   trialRemaining: number; // dias restantes, -1 se não está em trial
   loading: boolean;
@@ -37,9 +37,12 @@ interface PlanCtx {
   clockWarning: boolean;
   isCollaborator: boolean;
   ownerName: string | null;
+  cancelAtPeriodEnd: boolean; // cancelamento agendado (Stripe Portal)
+  currentPeriodEnd: string | null; // fim do período pago
   refresh: () => Promise<void>;
   startTrial: (plan: string) => Promise<void>;
   openCheckout: (plan: string, billing: string) => Promise<string | null>;
+  openPortal: () => Promise<string | null>; // Stripe Customer Portal
 }
 
 const FREE_FEATURES: PlanFeatures = {
@@ -67,6 +70,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [clockWarning, setClockWarning] = useState(false);
   const [isCollaborator, setIsCollaborator] = useState(false);
   const [ownerName, setOwnerName] = useState<string | null>(null);
+  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null);
 
   const fetchLicense = useCallback(async () => {
     if (!session) return;
@@ -92,6 +97,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           setFeatures({ ...FREE_FEATURES, ...(data.features || {}) });
           setStatus(data.status || "free");
           setTrialEnd(data.trialEnd || null);
+          setCancelAtPeriodEnd(!!data.cancelAtPeriodEnd);
+          setCurrentPeriodEnd(data.currentPeriodEnd || null);
           licenseIsCollab = !!data.isCollaborator;
           setIsCollaborator(licenseIsCollab);
 
@@ -201,11 +208,23 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     return data.url;
   }, []);
 
+  const openPortal = useCallback(async (): Promise<string | null> => {
+    const res = await fetch("/api/upgrade/portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao abrir portal de assinatura");
+    return data.url;
+  }, []);
+
   return (
     <Ctx.Provider value={{
       plan, features, status, trialEnd, trialRemaining,
       loading, blocked, clockWarning, isCollaborator, ownerName,
-      refresh: fetchLicense, startTrial, openCheckout,
+      cancelAtPeriodEnd, currentPeriodEnd,
+      refresh: fetchLicense, startTrial, openCheckout, openPortal,
     }}>
       {children}
     </Ctx.Provider>

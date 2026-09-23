@@ -122,6 +122,7 @@ app.use("/api/auth/reset-password", authLimiter);
 app.use("/api/auth/resend-verification", emailLimiter);
 app.use("/api/collaborators/invite", inviteLimiter);
 app.use("/api/upgrade/checkout", upgradeLimiter);
+app.use("/api/upgrade/portal", upgradeLimiter);
 app.use("/api/upgrade/trial", upgradeLimiter);
 app.use("/api/sync", syncLimiter);
 

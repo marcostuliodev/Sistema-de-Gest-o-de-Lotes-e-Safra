@@ -69,7 +69,7 @@ interface AccountMenuProps {
 
 export function AccountMenu({ open, onClose }: AccountMenuProps) {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
-  const { plan, features, status, trialRemaining, isCollaborator, ownerName, loading } = usePlan();
+  const { plan, features, status, trialRemaining, isCollaborator, ownerName, loading, cancelAtPeriodEnd } = usePlan();
   const navigate = useNavigate();
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
@@ -227,6 +227,12 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
                       <Badge tone="blue">
                         Trial{trialRemaining >= 0 ? ` ${trialRemaining}d` : ""}
                       </Badge>
+                    )}
+                    {cancelAtPeriodEnd && status === "active" && (
+                      <Badge tone="amber">Cancelando</Badge>
+                    )}
+                    {status === "past_due" && (
+                      <Badge tone="amber">Pagamento</Badge>
                     )}
                   </div>
                   <button
