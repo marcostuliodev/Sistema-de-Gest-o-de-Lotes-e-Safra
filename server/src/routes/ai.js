@@ -42,24 +42,34 @@ Não responda assuntos fora do agronegócio, orquídeas ou plantas.`;
 
 const ANALYZE_SYSTEM_PROMPT = `Analise a foto e responda APENAS com JSON válido (sem texto fora).
 
-EXEMPLO de resposta correta para uma orquídea:
+EXEMPLO de resposta completa e detalhada:
 {
-  "resumo": "Orquídea Phalaenopsis com flores rosa e brancas, saudável.",
+  "resumo": "Orquídea Phalaenopsis com 5 flores rosa e brancas, folhas verdes sem manchas, raízes aéreas visíveis. Planta saudável em vaso plástico.",
   "identificacao": {"especie": "Phalaenopsis (Orquídea Borboleta)", "confianca": "alta"},
   "saude": "saudavel",
   "problemas": [],
-  "cuidados": ["Manter vaso com boa ventilação"],
-  "rega": "Regar 2x por semana, substrato deve secar entre regas",
-  "adubacao": "Adubo para orquídeas 1x por semana na fase de crescimento",
-  "luminosidade": "Luz indireta forte, sem sol direto",
-  "substrato": "Casca de pinus e esfagno"
+  "cuidados": ["Manter vaso com boa ventilação", "Não regar sobre a raiz", "Remover haste seca após floração"],
+  "rega": "Regar 2x por semana em verão, 1x por semana em inverno. O substrato deve secar entre regas.",
+  "adubacao": "Adubo para orquídeas NPK 20-20-20 diluído 1/4 da dose, 1x por semana durante crescimento.",
+  "luminosidade": "Luz indireta forte (janela leste ou oeste). Sem sol direto que queima as folhas.",
+  "substrato": "Casca de pinus grosso + esfagno + perlite. Trocar a cada 2 anos."
 }
 
-REGRAS:
-- identificacao.especie: SE você identificou a planta na foto, PREENCHA com o nome. Só use "Não identificada" se realmente não conseguir ver.
-- identificacao.confianca: "alta" se tem certeza, "media" se quase certeza, "baixa" se duvidosa.
-- Preencha TODOS os campos: resumo, identificacao, saude, problemas, cuidados, rega, adubacao, luminosidade, substrato.
-- Se não for planta: especie "Não identificada", saude "atencao", problemas [], cuidados [], campos de cuidado vazios.`;
+REGRAS OBRIGATÓRIAS:
+1. identificacao.especie: SE identificou a planta, PREENCHA com nome comum e científico. Só use "Não identificada" se realmente não conseguir ver a planta.
+2. identificacao.confianca: "alta" se tem certeza, "media" se quase certeza, "baixa" se duvidosa.
+3. TODOS os campos DEVEM ter conteúdo real e específico:
+   - resumo: descreva o que VEU na foto (não genérico)
+   - problemas: liste problemas visíveis OU array vazio [] se saudável
+   - cuidados: pelo menos 2-3 ações práticas específicas
+   - rega: frequência concreta (ex: "2x por semana")
+   - adubacao: tipo e frequência (ex: "NPK 20-20-20, 1x por semana")
+   - luminosidade: tipo de luz (ex: "indireta forte")
+   - substrato: composição (ex: "casca de pinus + esfagno")
+4. saude: "saudavel" | "atencao" | "doente" (baseado no que VEU)
+5. NÃO deixe campos vazios ou com texto genérico. Seja específico e prático.
+
+Se não for planta: especie "Não identificada", saude "atencao", problemas [], cuidados ["Não identificado como planta"], rega/adubacao/luminosidade/substrato com "Não aplicável".`;
 
 // ── Cache de análise (evita re-analisar mesma foto) ───────────────────
 
@@ -330,7 +340,7 @@ router.post("/analyze", asyncHandler(async (req, res) => {
       messages: [{ role: "user", content: userText }],
       imageBase64,
       imageMime: "image/jpeg",
-      maxTokens: 800,
+      maxTokens: 1200,
       temperature: 0.3,
       json: true,
     });
