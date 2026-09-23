@@ -37,10 +37,11 @@ const FALLBACK_MODELS = [
 
 const MAX_RETRIES = 1; // tentativas extras por modelo (total = MAX_RETRIES+1)
 const RETRY_DELAY = 1000; // 1s entre retries de último recurso
-const CALL_TIMEOUT_MS = 8_000; // timeout por call ao Gemini
+const CALL_TIMEOUT_MS = 7_000; // timeout por call ao Gemini (chave ruim aborta rápido)
 const GLOBAL_BUDGET_MS = 18_000; // prazo total da cadeia (Vercel mata aos 30s)
 const KEY_COOLDOWN_MS = 30_000; // cooldown da chave após 429
-const MAX_TOTAL_CALLS = 15; // teto absoluto de calls por request
+const KEY_ABORT_COOLDOWN_MS = 60_000; // cooldown MAIOR após timeout/abort (chave que trava)
+const MAX_TOTAL_CALLS = 12; // teto absoluto de calls por request
 
 export { MODEL };
 
@@ -66,12 +67,22 @@ export function geminiKey() {
 }
 
 // ── Estado de saúde das chaves (in-memory, por instância serverless) ──
-const keyState = new Map(); // key → { cooldownUntil: number, disabled?: boolean }
+const keyState = new Map(); // key → { cooldownUntil, disabled?, aborts: number }
 let rrIndex = 0; // índice round-robin
+let lastGoodKey = null; // última chave que respondeu 200 (preferência sticky)
 
 function markCooldown(key) {
   const s = keyState.get(key) || {};
   s.cooldownUntil = Date.now() + KEY_COOLDOWN_MS;
+  keyState.set(key, s);
+}
+
+function markAbort(key) {
+  // Timeout/abort: chave "pendurou" a call (quota esgotada trava em vez de 429).
+  // Cooldown longo; 3+ aborts seguidos = desativa por enquanto.
+  const s = keyState.get(key) || {};
+  s.aborts = (s.aborts || 0) + 1;
+  s.cooldownUntil = Date.now() + KEY_ABORT_COOLDOWN_MS * s.aborts;
   keyState.set(key, s);
 }
 
@@ -80,6 +91,14 @@ function markDisabled(key, reason) {
   s.disabled = true;
   s.reason = reason;
   keyState.set(key, s);
+}
+
+function markSuccess(key) {
+  const s = keyState.get(key) || {};
+  s.cooldownUntil = 0;
+  s.aborts = 0;
+  keyState.set(key, s);
+  lastGoodKey = key;
 }
 
 function isHealthy(key) {
@@ -91,19 +110,20 @@ function isHealthy(key) {
 }
 
 /**
- * Escolhe a próxima chave saudável (round-robin).
- * @param {string[]} keys - todas as chaves
- * @param {Set<string>} [exclude] - chaves a evitar nesta request (ex.: já falharam)
- * @returns {string|null}
+ * Escolhe chave: (1) última boa (sticky), se saudável e não excluída;
+ * (2) round-robin entre saudáveis; (3) qualquer não-excluída.
  */
 function pickKey(keys, exclude) {
-  const healthy = keys.filter((k) => isHealthy(k) && !(exclude && exclude.has(k)));
+  const usable = (k) => isHealthy(k) && !(exclude && exclude.has(k));
+  if (lastGoodKey && keys.includes(lastGoodKey) && usable(lastGoodKey) && !(exclude && exclude.has(lastGoodKey))) {
+    return lastGoodKey;
+  }
+  const healthy = keys.filter(usable);
   if (healthy.length > 0) {
     const key = healthy[rrIndex % healthy.length];
     rrIndex = (rrIndex + 1) % Math.max(healthy.length, 1);
     return key;
   }
-  // Todas em cooldown/disable → tenta qualquer não-excluída (último recurso)
   const any = keys.filter((k) => !(exclude && exclude.has(k)));
   if (any.length > 0) {
     const key = any[rrIndex % any.length];
@@ -228,7 +248,9 @@ export async function aiChat({
 
       totalCalls++;
       try {
-        return await callModel(model, key, bodyTry);
+        const ok = await callModel(model, key, bodyTry);
+        markSuccess(key);
+        return ok;
       } catch (err) {
         lastErr = err;
         const keyIdx = keys.indexOf(key) + 1;
@@ -249,14 +271,19 @@ export async function aiChat({
         // ── Problema da CHAVE → troca chave, mesmo modelo, sem sleep ──
         // 429: rate limit desta chave/project → cooldown + próxima chave
         // 401/403: chave inválida → disable permanente (instância)
-        const keyProblem = status === 429 || status === 401 || status === 403 || isAbort;
+        // abort/timeout: chave travou (quota esgotada trava em vez de 429 nestas keys)
+        // 500/503 com keys que "penduram" também = tratar como problema de chave
+        const keyProblem = status === 429 || status === 401 || status === 403 || isAbort || status === 500 || status === 503;
         if (keyProblem) {
           if (status === 401 || status === 403) {
             markDisabled(key, `http_${status}`);
           } else if (status === 429) {
             markCooldown(key);
+          } else if (isAbort) {
+            markAbort(key);
           } else {
-            // timeout/rede: cooldown curto
+            // 500/503: cooldown moderado — modelo sob demanda pode ser temporário,
+            // mas para chaves que penduram, evita ficar preso no loop.
             const s = keyState.get(key) || {};
             s.cooldownUntil = Date.now() + 5_000;
             keyState.set(key, s);
