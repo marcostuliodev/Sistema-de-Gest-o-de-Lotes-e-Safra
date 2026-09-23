@@ -73,10 +73,16 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
       console.log(`[password-reset] Email enviado para ${user.email}`);
     } catch (e) {
       console.error("[password-reset] Erro ao enviar email:", e.message);
-      console.log(`[password-reset] URL de reset (fallback): ${resetUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[password-reset] URL de reset (fallback): ${resetUrl}`);
+      }
     }
   } else {
-    console.log(`[password-reset] RESEND_API_KEY não configurado. URL de reset: ${resetUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[password-reset] RESEND_API_KEY não configurado. URL de reset: ${resetUrl}`);
+    } else {
+      console.log("[password-reset] RESEND_API_KEY não configurado");
+    }
   }
 
   res.json({ ok: true, message: "Se o e-mail existir, você receberá um link de recuperação." });
@@ -237,10 +243,16 @@ router.post("/resend-verification", asyncHandler(async (req, res) => {
       console.log(`[verify-email] Email enviado para ${user.email}`);
     } catch (e) {
       console.error("[verify-email] Erro ao enviar:", e.message);
-      console.log(`[verify-email] URL: ${verifyUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[verify-email] URL: ${verifyUrl}`);
+      }
     }
   } else {
-    console.log(`[verify-email] URL: ${verifyUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[verify-email] URL: ${verifyUrl}`);
+    } else {
+      console.log("[verify-email] RESEND_API_KEY não configurado");
+    }
   }
 
   res.json({ ok: true, message: "Se o e-mail existir e não estiver confirmado, você receberá um novo link." });

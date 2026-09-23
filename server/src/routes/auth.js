@@ -74,10 +74,16 @@ router.post("/register", asyncHandler(async (req, res) => {
       console.log(`[register] Email de verificação enviado para ${parsedEmail.data}`);
     } catch (e) {
       console.error("[register] Erro ao enviar email de verificação:", e.message);
-      console.log(`[register] URL de verificação (fallback): ${verifyUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[register] URL de verificação (fallback): ${verifyUrl}`);
+      }
     }
   } else {
-    console.log(`[register] RESEND_API_KEY não configurado. URL de verificação: ${verifyUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[register] RESEND_API_KEY não configurado. URL de verificação: ${verifyUrl}`);
+    } else {
+      console.log("[register] RESEND_API_KEY não configurado");
+    }
   }
 
   const user = { id, name: parsedName.data, email: parsedEmail.data, email_verified: false };

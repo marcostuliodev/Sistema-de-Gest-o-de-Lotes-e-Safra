@@ -220,12 +220,18 @@ router.post("/invite", asyncHandler(async (req, res) => {
       console.log(`[invite] Email de convite enviado para ${normalizedEmail}`);
     } catch (e) {
       console.error("[invite] Erro ao enviar email de convite:", e.message);
-      console.log(`[invite] URL de convite (fallback): ${inviteUrl}`);
-      if (resetUrl) console.log(`[invite] URL para definir senha (fallback): ${resetUrl}`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[invite] URL de convite (fallback): ${inviteUrl}`);
+        if (resetUrl) console.log(`[invite] URL para definir senha (fallback): ${resetUrl}`);
+      }
     }
   } else {
-    console.log(`[invite] RESEND_API_KEY não configurado. URL de convite: ${inviteUrl}`);
-    if (resetUrl) console.log(`[invite] URL para definir senha: ${resetUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[invite] RESEND_API_KEY não configurado. URL de convite: ${inviteUrl}`);
+      if (resetUrl) console.log(`[invite] URL para definir senha: ${resetUrl}`);
+    } else {
+      console.log("[invite] RESEND_API_KEY não configurado");
+    }
   }
 
   res.status(201).json(sanitizeRow(doc));
