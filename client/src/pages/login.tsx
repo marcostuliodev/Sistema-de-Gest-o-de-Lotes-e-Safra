@@ -164,29 +164,6 @@ export default function Login() {
               {busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
             </Button>
           </Form>
-
-          {mode === "login" && !import.meta.env.PROD && (
-            <button
-              type="button"
-              onClick={async () => {
-                setEmail("demo@agrolote.app");
-                setPassword("demo123");
-                setBusy(true);
-                setError("");
-                try {
-                  await login("demo@agrolote.app", "demo123");
-                } catch (err) {
-                  setError((err as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              disabled={busy}
-              className="mt-4 w-full rounded-lg border border-dashed border-green-300 bg-green-50 py-2 text-xs font-medium text-green-700 hover:bg-green-100"
-            >
-              {busy ? "Aguarde..." : "Usar conta demo (demo@agrolote.app)"}
-            </button>
-          )}
         </div>
 
         <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-xs text-green-200">
