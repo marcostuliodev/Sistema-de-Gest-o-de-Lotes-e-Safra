@@ -91,7 +91,9 @@ router.post("/invite", asyncHandler(async (req, res) => {
   const owner = await usersCol.findOne({ _id: req.user.uid });
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const APP_URL = process.env.APP_URL || "https://agrolote.marcostuliogc.com.br";
-  const inviteUrl = `${APP_URL}/colaboradores`;
+  const hasAccount = !!invitedUser;
+  const inviteUrl = hasAccount ? `${APP_URL}/colaboradores` : `${APP_URL}/login`;
+  const ctaText = hasAccount ? "Aceitar convite" : "Criar conta e aceitar";
   const roleLabel = role === "admin" ? "Administrador" : "Visualizador";
 
   if (RESEND_API_KEY) {
@@ -119,12 +121,13 @@ router.post("/invite", asyncHandler(async (req, res) => {
             </p>
             <div style="text-align: center; margin: 32px 0;">
               <a href="${inviteUrl}" style="display: inline-block; background: #16a34a; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-                Aceitar convite
+                ${ctaText}
               </a>
             </div>
-            <p style="color: #57534e; font-size: 14px;">
-              Para aceitar, você precisa ter uma conta no Agrolote com o e-mail <strong>${normalizedEmail}</strong>. Se ainda não tem, crie sua conta com esse e-mail e depois aceite o convite.
-            </p>
+            ${hasAccount
+              ? `<p style="color: #57534e; font-size: 14px;">Faça login com o e-mail <strong>${normalizedEmail}</strong> e aceite o convite na página Colaboradores.</p>`
+              : `<p style="color: #57534e; font-size: 14px;">Você ainda não tem conta. Crie sua conta usando o e-mail <strong>${normalizedEmail}</strong> e o convite será aceito automaticamente.</p>`
+            }
             <p style="color: #a8a29e; font-size: 12px; text-align: center;">
               Se você não esperava este convite, ignore este e-mail.
             </p>
@@ -185,11 +188,11 @@ router.post("/accept", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Este convite ja foi processado" });
   }
 
-  // Check if the current user is the invited one
+  // Check if the current user is the invited one (case-insensitive)
   const usersCol = await col("users");
   const currentUser = await usersCol.findOne({ _id: req.user.uid });
 
-  if (!currentUser || currentUser.email !== invite.email) {
+  if (!currentUser || currentUser.email.toLowerCase() !== invite.email.toLowerCase()) {
     return res.status(403).json({ error: "Voce nao e o destinatario deste convite" });
   }
 
@@ -232,10 +235,11 @@ router.get("/my-access", asyncHandler(async (req, res) => {
 // GET /api/collaborators/pending - List pending invitations for current user
 router.get("/pending", asyncHandler(async (req, res) => {
   const collabsCol = await col("collaborators");
+  const emailRegex = new RegExp("^" + req.user.email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i");
   const pending = await collabsCol.find({
     $or: [
       { user_id: req.user.uid, status: "pending" },
-      { email: req.user.email, status: "pending", user_id: null },
+      { email: emailRegex, status: "pending", user_id: null },
     ],
   }).sort({ created_at: -1 }).toArray();
 
@@ -273,11 +277,11 @@ router.post("/decline", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Este convite ja foi processado" });
   }
 
-  // Check if the current user is the invited one
+  // Check if the current user is the invited one (case-insensitive)
   const usersCol = await col("users");
   const currentUser = await usersCol.findOne({ _id: req.user.uid });
 
-  if (!currentUser || currentUser.email !== invite.email) {
+  if (!currentUser || currentUser.email.toLowerCase() !== invite.email.toLowerCase()) {
     return res.status(403).json({ error: "Voce nao e o destinatario deste convite" });
   }
 
