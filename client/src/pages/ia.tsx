@@ -129,8 +129,8 @@ function AnalysisResult({ a }: { a: AiAnalysis }) {
           <ul className="mt-3 space-y-3">
             {a.problemas!.map((p, i) => (
               <li key={i} className="rounded-xl border border-stone-200 bg-stone-50 p-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-stone-800">{p.nome}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 truncate text-sm font-semibold text-stone-800">{p.nome}</span>
                   <Badge tone={SEVERITY_TONE[p.severidade] || "gray"}>{p.severidade}</Badge>
                 </div>
                 {p.descricao && (
@@ -397,7 +397,7 @@ function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                className={`max-w-[85%] break-words whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                   m.role === "user"
                     ? "bg-green-700 text-white"
                     : "bg-stone-100 text-stone-700"
@@ -483,7 +483,7 @@ export default function AgroIA() {
             Assistente inteligente especialista em orquídeas e plantações — análise de fotos e dúvidas.
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <UsageBar usage={usage} />
         </div>
       </div>

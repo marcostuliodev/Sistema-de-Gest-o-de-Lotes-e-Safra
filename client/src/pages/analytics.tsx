@@ -188,11 +188,11 @@ function AnalyticsContent() {
           <div className="space-y-3">
             {culturaRows.map((r, i) => (
               <div key={r.cultura}>
-                <div className="flex items-center justify-between mb-1">
+                <div className="mb-1 flex items-center justify-between gap-2">
                   <span className="min-w-0 truncate text-sm font-medium text-stone-700">
                     {i + 1}. {r.cultura}
                   </span>
-                  <span className={`text-xs font-semibold ${r.lucro >= 0 ? "text-green-700" : "text-red-600"}`}>
+                  <span className={`shrink-0 text-xs font-semibold ${r.lucro >= 0 ? "text-green-700" : "text-red-600"}`}>
                     <Money value={r.lucro} /> <span className="text-stone-400 font-normal">({r.margem.toFixed(1)}%)</span>
                   </span>
                 </div>
@@ -236,10 +236,10 @@ function AnalyticsContent() {
                       : "border-stone-200 bg-stone-50/60"
                 }`}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-stone-800 truncate">{l.nome}</h3>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="min-w-0 truncate font-semibold text-stone-800">{l.nome}</h3>
                   {l.area != null && l.area > 0 && (
-                    <span className="text-[11px] text-stone-400 ml-2 shrink-0">{l.area} ha</span>
+                    <span className="ml-2 shrink-0 text-[11px] text-stone-400">{l.area} ha</span>
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">

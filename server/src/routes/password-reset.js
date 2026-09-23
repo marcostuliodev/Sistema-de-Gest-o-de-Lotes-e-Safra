@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { col } from "../db.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { emailSchema } from "../validation.js";
+import { emailSchema, passwordSchema, escapeRegExp, sanitizeText } from "../validation.js";
 
 const router = Router();
 const RESET_TOKEN_TTL = 60 * 60 * 1000; // 1 hour
@@ -17,7 +17,7 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
   }
 
   const users = await col("users");
-  const user = await users.findOne({ email: { $regex: new RegExp("^" + parsed.data + "$", "i") } });
+  const user = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsed.data) + "$", "i") } });
 
   if (!user) {
     return res.json({ ok: true, message: "Se o e-mail existir, você receberá um link de recuperação." });
@@ -54,7 +54,7 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
               <h1 style="color: #1c1917; margin-top: 16px;">Recuperação de senha</h1>
             </div>
             <p style="color: #57534e; font-size: 14px;">
-              Olá <strong>${user.name || user.email}</strong>,
+              Olá <strong>${sanitizeText(user.name || user.email)}</strong>,
             </p>
             <p style="color: #57534e; font-size: 14px;">
               Recebemos uma solicitação para redefinir sua senha. Clique no botão abaixo para criar uma nova senha:
@@ -86,12 +86,15 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
 router.post("/reset-password", asyncHandler(async (req, res) => {
   const { token, password } = req.body || {};
 
-  if (!token || !password) {
-    return res.status(400).json({ error: "Token e senha são obrigatórios" });
+  // Token deve ser string hex (randomBytes(32) → 64 chars). Sem isto, um
+  // objeto tipo { $ne: null } casaria com qualquer registro (NoSQL injection).
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({ error: "Token inválido ou expirado" });
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({ error: "A senha deve ter pelo menos 6 caracteres" });
+  const parsedPass = passwordSchema.safeParse(password);
+  if (!parsedPass.success) {
+    return res.status(400).json({ error: parsedPass.error.issues[0]?.message || "Senha invalida" });
   }
 
   const resets = await col("password_resets");
@@ -107,7 +110,7 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
   }
 
   const users = await col("users");
-  const hash = await bcrypt.hash(password, 10);
+  const hash = await bcrypt.hash(parsedPass.data, 10);
 
   const result = await users.updateOne(
     { id: resetRecord.user_id },
@@ -125,8 +128,12 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
 
 // GET /api/auth/verify-reset-token/:token
 router.get("/verify-reset-token/:token", asyncHandler(async (req, res) => {
+  const raw = req.params.token;
+  if (typeof raw !== "string" || !/^[a-f0-9]{64}$/i.test(raw)) {
+    return res.status(400).json({ valid: false, error: "Token inválido" });
+  }
   const resets = await col("password_resets");
-  const resetRecord = await resets.findOne({ token: req.params.token });
+  const resetRecord = await resets.findOne({ token: raw });
 
   if (!resetRecord) {
     return res.status(400).json({ valid: false, error: "Token inválido" });
@@ -143,7 +150,9 @@ router.get("/verify-reset-token/:token", asyncHandler(async (req, res) => {
 // POST /api/auth/verify-email
 router.post("/verify-email", asyncHandler(async (req, res) => {
   const { token } = req.body || {};
-  if (!token) return res.status(400).json({ error: "Token obrigatório" });
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({ error: "Token inválido" });
+  }
 
   const verifications = await col("email_verifications");
   const record = await verifications.findOne({ token });
@@ -173,7 +182,7 @@ router.post("/resend-verification", asyncHandler(async (req, res) => {
   }
 
   const users = await col("users");
-  const user = await users.findOne({ email: { $regex: new RegExp("^" + parsed.data + "$", "i") } });
+  const user = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsed.data) + "$", "i") } });
   if (!user || user.email_verified) {
     return res.json({ ok: true, message: "Se o e-mail existir e não estiver confirmado, você receberá um novo link." });
   }
@@ -209,7 +218,7 @@ router.post("/resend-verification", asyncHandler(async (req, res) => {
               <h1 style="color: #1c1917; margin-top: 16px;">Confirme seu e-mail</h1>
             </div>
             <p style="color: #57534e; font-size: 14px;">
-              Olá <strong>${user.name || user.email}</strong>,
+              Olá <strong>${sanitizeText(user.name || user.email)}</strong>,
             </p>
             <p style="color: #57534e; font-size: 14px;">
               Clique no botão abaixo para confirmar seu e-mail e ativar sua conta no Agrolote:

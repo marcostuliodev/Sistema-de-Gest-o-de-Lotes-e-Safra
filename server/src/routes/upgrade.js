@@ -116,7 +116,8 @@ router.post("/checkout", authMiddleware, asyncHandler(async (req, res) => {
     res.json({ url: session.url, sessionId: session.id });
   } catch (e) {
     console.error("[checkout] Erro:", e.message);
-    res.status(500).json({ error: e.message || "Erro ao criar checkout" });
+    // Em prod não vaza e.message (pode conter detalhes internos do Stripe/infra)
+    res.status(500).json({ error: IS_PROD ? "Erro ao criar checkout" : (e.message || "Erro ao criar checkout") });
   }
 }));
 
@@ -142,7 +143,10 @@ router.post("/webhook", expressRawBody(), asyncHandler(async (req, res) => {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
-        const userId = Number(session.metadata?.userId);
+        // IDs mistos: Date.now() (números) e uuid (strings). Number(uuid) = NaN
+        // faria a ativação do plano ser SEMPRE ignorada para usuários novos.
+        const rawUserId = String(session.metadata?.userId || "");
+        const userId = /^\d+$/.test(rawUserId) ? Number(rawUserId) : rawUserId;
         const plan = session.metadata?.plan || "basico";
         const billing = session.metadata?.billing || "monthly";
         if (userId && isValidPlan(plan)) {
@@ -210,18 +214,21 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
     if (existing && existing.status === "active" && existing.plan !== "free") {
       return res.status(400).json({ error: "Voce ja possui um plano ativo." });
     }
-    if (existing && existing.status === "trial" && existing.trial_started_at) {
+    // Trial só UMA vez por conta (enquanto ativo devolve o mesmo; expirado
+    // bloqueia novo trial — antes era possível reiniciar infinitamente).
+    if (existing && existing.trial_started_at) {
       const started = new Date(existing.trial_started_at);
       const daysSince = (Date.now() - started.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince < TRIAL_DAYS && existing.trial_plan === plan) {
-        const trialEnd = new Date(started.getTime() + TRIAL_DAYS * 86400000);
-        let license = null;
-        try { license = generateLicense(req.user.uid, plan, null, trialEnd); } catch (e) { console.error("[trial] generateLicense error:", e.message); }
-        return res.json({ plan, trialEnd: trialEnd.toISOString(), license });
-      }
       if (daysSince < TRIAL_DAYS) {
+        if (existing.trial_plan === plan) {
+          const trialEnd = new Date(started.getTime() + TRIAL_DAYS * 86400000);
+          let license = null;
+          try { license = generateLicense(req.user.uid, plan, null, trialEnd); } catch (e) { console.error("[trial] generateLicense error:", e.message); }
+          return res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+        }
         return res.status(400).json({ error: "Voce ja esta testando o plano " + (PLANS[existing.trial_plan]?.label || existing.trial_plan) + "." });
       }
+      return res.status(400).json({ error: "Voce ja utilizou o periodo de teste." });
     }
 
     const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000);
@@ -252,7 +259,7 @@ router.post("/trial", authMiddleware, asyncHandler(async (req, res) => {
     res.json({ plan, trialEnd: trialEnd.toISOString(), license });
   } catch (e) {
     console.error("[trial] Erro:", e.message, e.stack);
-    res.status(500).json({ error: e.message || "Erro interno no trial" });
+    res.status(500).json({ error: IS_PROD ? "Erro interno no trial" : (e.message || "Erro interno no trial") });
   }
 }));
 
@@ -325,7 +332,7 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
     });
   } catch (e) {
     console.error("[license] Erro:", e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: IS_PROD ? "Erro interno" : e.message });
   }
 }));
 
@@ -334,7 +341,7 @@ router.get("/license", authMiddleware, asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/verify", authMiddleware, asyncHandler(async (req, res) => {
   const { license: signedLicense } = req.body || {};
-  if (!signedLicense) {
+  if (typeof signedLicense !== "string" || !signedLicense) {
     return res.json({ valid: false, plan: "free", features: getPlanFeatures("free") });
   }
 
@@ -347,7 +354,7 @@ router.post("/verify", authMiddleware, asyncHandler(async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 router.post("/heartbeat", authMiddleware, asyncHandler(async (req, res) => {
   const { deviceTime } = req.body || {};
-  if (!deviceTime) {
+  if (typeof deviceTime !== "string" || !deviceTime) {
     return res.status(400).json({ error: "deviceTime obrigatório" });
   }
 
@@ -366,7 +373,11 @@ router.post("/integrity", authMiddleware, asyncHandler(async (req, res) => {
 
   let finalScore = { score: 100, blocked: false };
   for (const s of signals) {
-    finalScore = await reportIntegrity(req.user.uid, s.signal, s.severity, s.detail);
+    if (!s || typeof s !== "object") continue;
+    const signal = typeof s.signal === "string" ? s.signal.slice(0, 100) : "unknown";
+    const severity = ["low", "medium", "high", "critical"].includes(s.severity) ? s.severity : "low";
+    const detail = typeof s.detail === "string" ? s.detail.slice(0, 500) : null;
+    finalScore = await reportIntegrity(req.user.uid, signal, severity, detail);
     if (finalScore.blocked) break;
   }
 
@@ -397,7 +408,8 @@ async function activatePlan(userId, plan, billing, stripeSubId) {
         billing,
         current_period_start: now.toISOString(),
         current_period_end: periodEnd.toISOString(),
-        trial_started_at: null,
+        // trial_started_at NÃO é limpo: mantém a marca de "trial já usado"
+        // para impedir novo trial após cancelamento/ciclo pago.
         trial_plan: null,
         updated_at: now.toISOString(),
       },

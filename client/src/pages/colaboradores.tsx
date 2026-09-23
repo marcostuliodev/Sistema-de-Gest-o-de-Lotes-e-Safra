@@ -15,7 +15,7 @@ import {
 } from "../db/collaborators";
 
 export default function Colaboradores() {
-  const { features, isCollaborator } = usePlan();
+  const { features, isCollaborator, loading: planLoading, refresh } = usePlan();
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [pendingInvites, setPendingInvites] = useState<CollaboratorAccess[]>([]);
   const [myAccess, setMyAccess] = useState<CollaboratorAccess[]>([]);
@@ -69,7 +69,7 @@ export default function Colaboradores() {
     setError("");
 
     try {
-      await inviteCollaborator(inviteEmail, inviteRole, invitePassword);
+      await inviteCollaborator(inviteEmail, inviteRole, invitePassword || undefined);
       setInviteEmail("");
       setInviteRole("viewer");
       setInvitePassword("");
@@ -92,40 +92,82 @@ export default function Colaboradores() {
     }
   }
 
-  async function handleAccept(id: string) {
+  async function handleAccept(invite: CollaboratorAccess) {
     try {
-      await acceptInvite(id);
+      await acceptInvite(invite.id, invite.token);
+      // Reavalia plano/isCollaborator no contexto (senão a UI continua obsoleta
+      // até um reload completo da página).
+      await refresh();
       await loadData();
     } catch (err) {
       alert((err as Error).message);
     }
   }
 
-  async function handleDecline(id: string) {
+  async function handleDecline(invite: CollaboratorAccess) {
     try {
-      await declineInvite(id);
+      await declineInvite(invite.id, invite.token);
       await loadData();
     } catch (err) {
       alert((err as Error).message);
     }
   }
 
-  if (maxColab === 0 && !isCollaborator) {
+  // Convites pendentes SEMPRE visíveis — inclusive para quem ainda não é
+  // colaborador (plano free ⇒ maxColab === 0). Sem isto, o convidado nunca
+  // consegue aceitar o convite e vira colaborador de fato.
+  const pendingCard = pendingInvites.length > 0 ? (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-stone-600">Convites Pendentes</h2>
+      <div className="space-y-2">
+        {pendingInvites.map((invite) => (
+          <div
+            key={invite.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Clock className="shrink-0 text-amber-600" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-stone-800">
+                  Convite de {invite.owner_name}
+                </p>
+                <p className="truncate text-xs text-stone-500">
+                  {invite.role === "admin" ? "Acesso total" : "Somente leitura"}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                onClick={() => handleAccept(invite)}
+                className="text-xs"
+              >
+                <Check /> Aceitar
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => handleDecline(invite)}
+                className="text-xs"
+              >
+                <X /> Recusar
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  ) : null;
+
+  // Espera o plano carregar — sem isto, features ainda em FREE (maxColab=0)
+  // mostravam o EmptyState de "plano free" para dono de plano pago.
+  if (planLoading) {
     return (
       <div className="space-y-4">
         <div>
           <h1 className="text-xl font-bold text-stone-800">Colaboradores</h1>
           <p className="text-sm text-stone-500">Gerencie quem tem acesso aos seus dados.</p>
         </div>
-        <EmptyState
-          title="Colaboradores indisponivel"
-          subtitle="Seu plano atual nao permite colaboradores. Faca upgrade para usar esta funcionalidade."
-          action={
-            <Button onClick={() => window.location.href = "/upgrade"}>
-              Fazer Upgrade
-            </Button>
-          }
-        />
+        <p className="text-sm text-stone-400">Carregando...</p>
       </div>
     );
   }
@@ -139,48 +181,7 @@ export default function Colaboradores() {
           <p className="text-sm text-stone-500">Convites e acessos de colaboração.</p>
         </div>
 
-        {/* Pending Invites */}
-        {pendingInvites.length > 0 && (
-          <Card>
-            <h2 className="mb-3 text-sm font-semibold text-stone-600">Convites Pendentes</h2>
-            <div className="space-y-2">
-              {pendingInvites.map((invite) => (
-                <div
-                  key={invite.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <Clock className="text-amber-600" />
-                    <div>
-                      <p className="text-sm font-medium text-stone-800">
-                        Convite de {invite.owner_name}
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        {invite.role === "admin" ? "Acesso total" : "Somente leitura"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="primary"
-                      onClick={() => handleAccept(invite.id)}
-                      className="text-xs"
-                    >
-                      <Check /> Aceitar
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleDecline(invite.id)}
-                      className="text-xs"
-                    >
-                      <X /> Recusar
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
+        {pendingCard}
 
         {/* Acessos ativos */}
         {loading ? (
@@ -199,16 +200,16 @@ export default function Colaboradores() {
                   key={access.id}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 p-3"
                 >
-                  <div className="flex items-center gap-3">
-                    <Mail className="text-green-600" />
-                    <div>
-                      <p className="text-sm font-medium text-stone-800">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <Mail className="shrink-0 text-green-600" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-stone-800">
                         {access.owner_name}
                       </p>
-                      <p className="text-xs text-stone-500">{access.owner_email}</p>
+                      <p className="truncate text-xs text-stone-500">{access.owner_email}</p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Badge tone={access.role === "admin" ? "blue" : "gray"}>
                       {access.role === "admin" ? "Admin" : "Visualizador"}
                     </Badge>
@@ -223,6 +224,37 @@ export default function Colaboradores() {
     );
   }
 
+  // ── Plano free (não-colaborador): gestão de colaboradores indisponível,
+  // mas os convites PENDENTES recebidos continuam visíveis/aceitáveis. ──
+  if (maxColab === 0) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-xl font-bold text-stone-800">Colaboradores</h1>
+          <p className="text-sm text-stone-500">Gerencie quem tem acesso aos seus dados.</p>
+        </div>
+        {loading ? (
+          <p className="text-sm text-stone-400">Carregando...</p>
+        ) : (
+          <>
+            {pendingCard}
+            {pendingInvites.length === 0 && (
+              <EmptyState
+                title="Colaboradores indisponivel"
+                subtitle="Seu plano atual nao permite colaboradores. Faca upgrade para usar esta funcionalidade."
+                action={
+                  <Button onClick={() => window.location.href = "/upgrade"}>
+                    Fazer Upgrade
+                  </Button>
+                }
+              />
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -230,7 +262,7 @@ export default function Colaboradores() {
           <h1 className="text-xl font-bold text-stone-800">Colaboradores</h1>
           <p className="text-sm text-stone-500">Gerencie quem tem acesso aos seus dados.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {!isCollaborator && (
             <span className="text-sm text-stone-500">
               {currentCount}/{maxColab} colaboradores
@@ -244,48 +276,7 @@ export default function Colaboradores() {
         </div>
       </div>
 
-      {/* Pending Invites */}
-      {pendingInvites.length > 0 && (
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold text-stone-600">Convites Pendentes</h2>
-          <div className="space-y-2">
-            {pendingInvites.map((invite) => (
-              <div
-                key={invite.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"
-              >
-                <div className="flex items-center gap-3">
-                  <Clock className="text-amber-600" />
-                  <div>
-                    <p className="text-sm font-medium text-stone-800">
-                      Convite de {invite.owner_name}
-                    </p>
-                    <p className="text-xs text-stone-500">
-                      {invite.role === "admin" ? "Acesso total" : "Somente leitura"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="primary"
-                    onClick={() => handleAccept(invite.id)}
-                    className="text-xs"
-                  >
-                    <Check /> Aceitar
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => handleDecline(invite.id)}
-                    className="text-xs"
-                  >
-                    <X /> Recusar
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      {pendingCard}
 
       {/* Collaborators List */}
       {loading ? (
@@ -377,18 +368,17 @@ export default function Colaboradores() {
               <option value="admin">Admin (leitura e escrita)</option>
             </Select>
           </Field>
-          <Field label="Senha do colaborador" required hint="Minimo 6 caracteres">
+          <Field label="Senha do colaborador (opcional)" hint="Minimo 6 caracteres. Se vazio, o colaborador define a propria senha pelo link do email.">
             <TextInput
               type="password"
-              placeholder="Senha para o colaborador"
+              placeholder="Deixe vazio para o colaborador definir"
               value={invitePassword}
               onChange={(e) => setInvitePassword(e.target.value)}
-              required
-              minLength={6}
+              minLength={invitePassword ? 6 : undefined}
             />
           </Field>
           <p className="text-xs text-stone-400">
-            O colaborador recebera um email com as credenciais e podera acessar seus dados conforme a funcao definida.
+            O colaborador recebera um email com o link do convite (e, para contas novas, o link para definir a propria senha).
           </p>
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">

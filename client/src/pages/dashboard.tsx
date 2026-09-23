@@ -83,13 +83,13 @@ export default function Dashboard() {
               const d = daysUntil(p.data_colheita_prevista);
               return (
                 <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                  <div>
-                    <p className="font-medium text-stone-800">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-stone-800">
                       {p.cultura} {p.cultivar && <span className="text-stone-400">· {p.cultivar}</span>}
                     </p>
-                    <p className="text-xs text-stone-400">{loteNome(p.lote_id)} · plantado em {p.data_plantio}</p>
+                    <p className="truncate text-xs text-stone-400">{loteNome(p.lote_id)} · plantado em {p.data_plantio}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {d !== null && d > 7 && <Badge tone="gray">em {d}d</Badge>}
                     {d !== null && d <= 7 && d >= 0 && <Badge tone="amber">em até {d}d</Badge>}
                     {d !== null && d < 0 && <Badge tone="red">vencido</Badge>}

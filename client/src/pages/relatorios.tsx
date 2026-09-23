@@ -72,7 +72,7 @@ function RelatoriosContent() {
           <h1 className="text-xl font-bold text-stone-800">Relatórios</h1>
           <p className="text-sm text-stone-500">Quanto você gasta vs. quanto lucra por cultura e por lote.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="subtle" onClick={exportCsv}>Exportar CSV</Button>
           <Button variant="primary" onClick={() => generatePdfReport(plantios ?? [], lotes ?? [], gastos ?? [], colheitas ?? [])}>Exportar PDF</Button>
         </div>
@@ -131,7 +131,7 @@ function RelatoriosContent() {
           <ul className="space-y-2">
             {perLote.map((l) => (
               <li key={l.lote} className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium text-stone-700">{l.lote}</span>
+                <span className="min-w-0 max-w-full truncate font-medium text-stone-700">{l.lote}</span>
                 <span className="flex flex-wrap items-center gap-3 text-sm">
                   <span className="text-stone-400">custo <Money value={l.custo} /></span>
                   <span className="text-stone-400">receita <Money value={l.receita} /></span>

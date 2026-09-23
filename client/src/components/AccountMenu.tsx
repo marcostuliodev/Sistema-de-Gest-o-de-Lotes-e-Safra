@@ -53,7 +53,7 @@ export function HamburgerButton({ onClick, className = "" }: { onClick: () => vo
       type="button"
       onClick={onClick}
       aria-label="Abrir menu da conta"
-      className={`flex h-9 w-9 items-center justify-center rounded-xl text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-800 ${className}`}
+      className={`flex h-11 w-11 items-center justify-center rounded-xl text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-800 ${className}`}
     >
       <span className="text-xl">
         <MenuIcon />
@@ -69,7 +69,7 @@ interface AccountMenuProps {
 
 export function AccountMenu({ open, onClose }: AccountMenuProps) {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
-  const { plan, features, status, trialRemaining, isCollaborator, ownerName } = usePlan();
+  const { plan, features, status, trialRemaining, isCollaborator, ownerName, loading } = usePlan();
   const navigate = useNavigate();
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
@@ -163,7 +163,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           <button
             onClick={onClose}
             aria-label="Fechar menu"
-            className="rounded-lg p-1.5 text-white/80 hover:bg-white/15 hover:text-white"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/80 hover:bg-white/15 hover:text-white"
           >
             <X />
           </button>
@@ -207,8 +207,15 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
             )}
           </section>
 
-          {/* ── Plano ── */}
-          {!isCollaborator ? (
+          {/* ── Plano ── (nada de UI de upgrade antes do fetch e para colaboradores) */}
+          {loading ? (
+            <section>
+              <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Plano</h3>
+              <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-3">
+                <p className="text-xs text-stone-400">Carregando...</p>
+              </div>
+            </section>
+          ) : !isCollaborator ? (
             <section>
               <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Plano</h3>
               <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 px-3 py-3">
@@ -261,7 +268,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           <section>
             <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Atalhos</h3>
             <div className="space-y-1">
-              {SHORTCUTS.filter((s) => !(isCollaborator && s.to === "/upgrade")).map((s) => (
+              {SHORTCUTS.filter((s) => !((loading || isCollaborator) && s.to === "/upgrade")).map((s) => (
                 <button
                   key={s.to}
                   onClick={() => go(s.to)}

@@ -52,7 +52,7 @@ function Sparkles({}: {}) {
 
 export default function Layout() {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
-  const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator } = usePlan();
+  const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator, loading: planLoading } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -120,7 +120,7 @@ export default function Layout() {
           )}
         </div>
       )}
-      {!isCollaborator && status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
+      {!planLoading && !isCollaborator && status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (
         <div className="shrink-0 bg-blue-50 px-4 py-2 text-center text-xs font-medium text-blue-800">
           Seu trial termina em {trialRemaining} dia(s).{" "}
           <button onClick={() => navigate("/upgrade")} className="underline hover:text-blue-600">
@@ -139,8 +139,8 @@ export default function Layout() {
           <span className="text-sm font-extrabold text-stone-800">Agrolote</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {isCollaborator ? (
-            <Badge tone="blue">Colaborador</Badge>
+          {planLoading ? null : isCollaborator ? (
+            <Badge tone="green">Colaborador</Badge>
           ) : (
             <>
               <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
@@ -183,8 +183,8 @@ export default function Layout() {
           ))}
         </nav>
         <div className="space-y-2 border-t border-stone-200 p-4">
-          {/* Plano badge + upgrade (oculto para colaboradores) */}
-          {!isCollaborator && (
+          {/* Plano badge + upgrade (oculto enquanto carrega e para colaboradores) */}
+          {!planLoading && !isCollaborator && (
             <button
               onClick={() => plan === "free" ? navigate("/upgrade") : setShowUpgrade(true)}
               className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
@@ -197,9 +197,9 @@ export default function Layout() {
               {plan === "free" && <span className="ml-auto text-[10px]">Upgrade →</span>}
             </button>
           )}
-          {isCollaborator && (
+          {!planLoading && isCollaborator && (
             <div className="flex w-full items-center gap-2 rounded-xl bg-stone-50 px-3 py-2 text-xs font-medium text-stone-600">
-              <Badge tone="blue">Colaborador</Badge>
+              <Badge tone="green">Colaborador</Badge>
             </div>
           )}
           <div
@@ -216,7 +216,7 @@ export default function Layout() {
               <p className="truncate text-sm font-semibold text-stone-700">{session.user.name}</p>
               <p className="truncate text-xs text-stone-400">{session.user.email}</p>
             </div>
-            <button onClick={logout} title="Sair" className="rounded-lg p-2 text-stone-400 hover:bg-red-50 hover:text-red-600">
+            <button onClick={logout} title="Sair" className="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600">
               <Logout />
             </button>
           </div>
@@ -240,20 +240,20 @@ export default function Layout() {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `flex min-w-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-xs font-medium active:bg-stone-100 ${
+                  `flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-xs font-medium active:bg-stone-100 ${
                     isActive ? "text-green-700" : "text-stone-400"
                   }`
                 }
               >
                 <span className="text-xs leading-none">{item.icon}</span>
-                <span className="w-full break-words text-center leading-none">{item.label}</span>
+                <span className="w-full truncate text-center leading-none">{item.label}</span>
               </NavLink>
             ))}
           </div>
         </nav>
       </div>
 
-      {!isCollaborator && (
+      {!planLoading && !isCollaborator && (
         <UpgradeModal open={showUpgrade} onClose={() => setShowUpgrade(false)} />
       )}
       <AccountMenu open={menuOpen} onClose={() => setMenuOpen(false)} />

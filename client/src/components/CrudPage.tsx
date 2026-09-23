@@ -154,7 +154,13 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                   <tr key={row.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50/70">
                     {config.columns.map((c) => (
                       <td key={c.key} className={`px-4 py-3 align-middle text-stone-700 ${c.center ? "text-center" : ""}`}>
-                        {c.render ? c.render(row) : String(row[c.key] ?? "")}
+                        {c.render ? (
+                          c.render(row)
+                        ) : (
+                          <span className="block max-w-[220px] truncate" title={String(row[c.key] ?? "")}>
+                            {String(row[c.key] ?? "")}
+                          </span>
+                        )}
                       </td>
                     ))}
                     <td className="px-4 py-3">

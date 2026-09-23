@@ -61,10 +61,8 @@ export function PlanGate({
   // Sem nenhuma condição atendida — bloqueia
   if (!feature && !minPlan) return <>{children}</>;
 
-  // Bloqueado — renderiza fallback ou CTA padrão
-  if (fallback) return <>{fallback}</>;
-
-  // Colaborador: recurso definido pelo proprietário, sem CTA de upgrade
+  // Colaborador: recurso definido pelo proprietário, sem CTA de upgrade.
+  // Verificado ANTES do fallback para nunca exibir "Ver planos" a colaboradores.
   if (isCollaborator) {
     return (
       <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-6 py-12 text-center">
@@ -78,6 +76,9 @@ export function PlanGate({
       </div>
     );
   }
+
+  // Bloqueado — renderiza fallback ou CTA padrão
+  if (fallback) return <>{fallback}</>;
 
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 px-6 py-12 text-center">

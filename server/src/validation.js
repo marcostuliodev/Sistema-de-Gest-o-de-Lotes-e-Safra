@@ -118,6 +118,15 @@ export function sanitizeText(v) {
   return v.replace(HTML_CHARS, "");
 }
 
+/**
+ * Escapa metacaracteres de regex para uso seguro em new RegExp(email).
+ * Sem isto, um e-mail como "a.*@x.com" ou ".*" casaria com outros usuários
+ * (injeção de regex / ReDoS leve) nos lookups por e-mail.
+ */
+export function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function sanitizeRow(row) {
   if (!row || typeof row !== "object") return row;
   const out = Array.isArray(row) ? [] : {};

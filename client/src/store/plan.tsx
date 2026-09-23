@@ -81,7 +81,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         setStatus("active");
       }
 
-      // 2. Busca licença atualizada do servidor (quando online)
+      // 2. Busca licença atualizada do servidor (quando online).
+      // O /license é a FONTE AUTORITATIVA de isCollaborator/plano.
+      let licenseIsCollab: boolean | null = null;
       if (navigator.onLine) {
         const res = await fetch("/api/upgrade/license", { credentials: "include" });
         if (res.ok) {
@@ -90,7 +92,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           setFeatures({ ...FREE_FEATURES, ...(data.features || {}) });
           setStatus(data.status || "free");
           setTrialEnd(data.trialEnd || null);
-          setIsCollaborator(!!data.isCollaborator);
+          licenseIsCollab = !!data.isCollaborator;
+          setIsCollaborator(licenseIsCollab);
 
           if (data.license) {
             setStoredLicense(data.license);
@@ -110,12 +113,17 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 3. Detecta se é colaborador (e nome do dono)
+      // 3. Complementa com o nome do dono (ownerName) e reforça isCollaborator.
+      // REGRA: getMyAccess() NUNCA sobrescreve isCollaborator=true vindo do
+      // /license com false (resposta vazia/stale não pode apagar o estado real).
       try {
         const access = await getMyAccess();
         if (access.length > 0) {
           setIsCollaborator(true);
           setOwnerName(access[0].owner_name || null);
+        } else if (licenseIsCollab === true) {
+          // /license disse colaborador — mantém true; só limpa o nome do dono.
+          setOwnerName(null);
         } else {
           setIsCollaborator(false);
           setOwnerName(null);

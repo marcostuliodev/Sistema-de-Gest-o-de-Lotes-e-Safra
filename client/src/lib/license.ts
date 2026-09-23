@@ -56,7 +56,9 @@ async function importPublicKey(pem: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "spki",
     binaryDer.buffer,
-    { name: "RSA-PSS", hash: "SHA-256" },
+    // O servidor assina com RSA PKCS#1 v1.5 (crypto.sign "sha256" default).
+    // RSA-PSS fazia a verificação offline FALHAR sempre.
+    { name: "RSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["verify"]
   );
@@ -113,7 +115,8 @@ export async function validateLicense(signedLicense: string, userId: number): Pr
     const cryptoKey = await importPublicKey(publicKeyPem);
 
     const valid = await crypto.subtle.verify(
-      { name: "RSA-PSS", saltLength: 32 },
+      // Mesmo algoritmo do servidor: PKCS#1 v1.5, não PSS.
+      { name: "RSA-PKCS1-v1_5" },
       cryptoKey,
       signatureBytes,
       payloadBytes

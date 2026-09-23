@@ -21,7 +21,12 @@ router.post(
   "/subscribe",
   asyncHandler(async (req, res) => {
     const { endpoint, keys } = req.body || {};
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    if (
+      typeof endpoint !== "string" || !endpoint ||
+      !keys || typeof keys !== "object" ||
+      typeof keys.p256dh !== "string" || !keys.p256dh ||
+      typeof keys.auth !== "string" || !keys.auth
+    ) {
       return res.status(400).json({ error: "Inscrição inválida" });
     }
     const subsCol = await col("push_subscriptions");
@@ -42,7 +47,9 @@ router.post(
   "/unsubscribe",
   asyncHandler(async (req, res) => {
     const { endpoint } = req.body || {};
-    if (!endpoint) return res.status(400).json({ error: "endpoint obrigatório" });
+    if (typeof endpoint !== "string" || !endpoint) {
+      return res.status(400).json({ error: "endpoint obrigatório" });
+    }
     const subsCol = await col("push_subscriptions");
     await subsCol.deleteMany({ user_id: req.user.uid, endpoint });
     res.json({ ok: true });

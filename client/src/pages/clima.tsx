@@ -346,12 +346,12 @@ useEffect(() => {
             {weather.alerts.map((a, i) => (
               <li key={i} className="flex items-start gap-3 rounded-xl bg-stone-50 p-3">
                 <span className="text-xl">{ALERT_ICON[a.type] || "⚠️"}</span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-stone-800">{a.title}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 truncate font-semibold text-stone-800">{a.title}</span>
                     <Badge tone={SEV_TONE[a.severity]}>{a.severity}</Badge>
                   </div>
-                  <p className="text-sm text-stone-600">{a.body}</p>
+                  <p className="break-words text-sm text-stone-600">{a.body}</p>
                 </div>
               </li>
             ))}
@@ -429,12 +429,12 @@ useEffect(() => {
             {weather.daily.map((d) => {
               const c = describeWeatherCode(d.weather_code);
               return (
-                <li key={d.date} className="flex items-center justify-between gap-2 py-2.5">
-                  <div className="flex items-center gap-3">
+                <li key={d.date} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span className="text-2xl">{c.icon}</span>
-                    <div>
-                      <p className="font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
-                      <p className="text-xs text-stone-400">{c.label}</p>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
+                      <p className="truncate text-xs text-stone-400">{c.label}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -461,10 +461,10 @@ useEffect(() => {
           </div>
           <ul className="space-y-2 text-sm">
             {history.slice(0, 5).map((a, i) => (
-              <li key={i} className="flex items-center gap-2">
+              <li key={i} className="flex flex-wrap items-center gap-2">
                 <span>{ALERT_ICON[a.type] || "⚠️"}</span>
-                <span className="font-medium text-stone-700">{a.title}</span>
-                <span className="text-stone-400">{a.sent_at?.slice(0, 16)}</span>
+                <span className="min-w-0 flex-1 truncate font-medium text-stone-700">{a.title}</span>
+                <span className="text-xs text-stone-400">{a.sent_at?.slice(0, 16)}</span>
               </li>
             ))}
           </ul>
@@ -478,7 +478,7 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold text-stone-800 tabular-nums">{value}</p>
+      <p className="mt-0.5 truncate text-sm font-semibold text-stone-800 tabular-nums" title={value}>{value}</p>
     </div>
   );
 }

@@ -28,11 +28,11 @@ async function checkAccess(entity, userId, resourceId = null) {
   if (collab) {
     // User is a collaborator - check permissions
     const canWrite = collab.role === "admin";
-    return { hasAccess: true, isOwner: false, canWrite };
+    return { hasAccess: true, isOwner: false, canWrite, ownerId: collab.owner_id };
   }
 
   // User is owner
-  return { hasAccess: true, isOwner: true, canWrite: true };
+  return { hasAccess: true, isOwner: true, canWrite: true, ownerId: userId };
 }
 
 function crudRouter(entity) {
@@ -67,7 +67,7 @@ function crudRouter(entity) {
   }));
 
   router.post("/", asyncHandler(async (req, res) => {
-    const { hasAccess, isOwner, canWrite } = await checkAccess(entity, req.user.uid);
+    const { hasAccess, isOwner, canWrite, ownerId } = await checkAccess(entity, req.user.uid);
 
     if (!hasAccess) {
       return res.status(403).json({ error: "Acesso negado" });
@@ -78,14 +78,16 @@ function crudRouter(entity) {
     }
 
     const limitKey = LIMITED_ENTITIES[entity];
-    if (limitKey && isOwner) {
-      const sub = await (await col("subscriptions")).findOne({ user_id: req.user.uid });
+    // Limite vale para dono E colaborador — conta sempre no plano/contagem
+    // do dono (ownerId), senão colaborador admin burlava o limite do plano.
+    if (limitKey) {
+      const sub = await (await col("subscriptions")).findOne({ user_id: ownerId });
       const activePlan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
       const features = getPlanFeatures(activePlan);
       const max = features[limitKey];
 
       if (max !== Infinity && max > 0) {
-        const count = await (await col(entity)).countDocuments({ user_id: req.user.uid });
+        const count = await (await col(entity)).countDocuments({ user_id: ownerId });
         if (count >= max) {
           return res.status(403).json({
             error: `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faca upgrade do seu plano.`,
@@ -106,13 +108,7 @@ function crudRouter(entity) {
 
     const fields = copyable[entity].filter((f) => body[f] !== undefined);
     const id = body.id || uuid();
-    // For collaborators, use the owner's user_id
-    let ownerId = req.user.uid;
-    if (!isOwner) {
-      const collabsCol = await col("collaborators");
-      const collab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
-      ownerId = collab?.owner_id || req.user.uid;
-    }
+    // For collaborators, use the owner's user_id (ownerId vem do checkAccess)
     const doc = { _id: id, id, user_id: ownerId };
     for (const f of fields) doc[f] = body[f];
 

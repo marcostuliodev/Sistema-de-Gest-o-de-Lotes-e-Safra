@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { col, migrate } from "../db.js";
 import { signToken, setAuthCookie, clearAuthCookie } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { emailSchema, passwordSchema, nameSchema } from "../validation.js";
+import { emailSchema, passwordSchema, nameSchema, escapeRegExp, sanitizeText } from "../validation.js";
 
 const router = Router();
 
@@ -19,7 +19,7 @@ router.post("/register", asyncHandler(async (req, res) => {
     });
   }
   const users = await col("users");
-  const existing = await users.findOne({ email: { $regex: new RegExp("^" + parsedEmail.data + "$", "i") } });
+  const existing = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsedEmail.data) + "$", "i") } });
   if (existing) return res.status(409).json({ error: "E-mail ja cadastrado" });
   const hash = await bcrypt.hash(parsedPass.data, 10);
   const id = Date.now();
@@ -55,7 +55,7 @@ router.post("/register", asyncHandler(async (req, res) => {
               <h1 style="color: #1c1917; margin-top: 16px;">Confirme seu e-mail</h1>
             </div>
             <p style="color: #57534e; font-size: 14px;">
-              Olá <strong>${parsedName.data}</strong>,
+              Olá <strong>${sanitizeText(parsedName.data)}</strong>,
             </p>
             <p style="color: #57534e; font-size: 14px;">
               Clique no botão abaixo para confirmar seu e-mail e ativar sua conta no Agrolote:
@@ -92,8 +92,8 @@ router.post("/login", asyncHandler(async (req, res) => {
   if (!parsedEmail.success) return res.status(401).json({ error: "Credenciais invalidas" });
   try {
     const users = await col("users");
-    const user = await users.findOne({ email: { $regex: new RegExp("^" + parsedEmail.data + "$", "i") } });
-    if (!user || !(await bcrypt.compare(password || "", user.password_hash))) {
+    const user = await users.findOne({ email: { $regex: new RegExp("^" + escapeRegExp(parsedEmail.data) + "$", "i") } });
+    if (!user || !(await bcrypt.compare(typeof password === "string" ? password : "", user.password_hash))) {
       return res.status(401).json({ error: "Credenciais invalidas" });
     }
     const safe = { id: user.id, name: user.name, email: user.email, email_verified: user.email_verified !== false };

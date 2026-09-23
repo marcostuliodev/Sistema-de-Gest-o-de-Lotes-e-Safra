@@ -42,7 +42,7 @@ export function Field({ label, children, required, hint }: { label: string; chil
 }
 
 const inputCls =
-  "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-stone-400 focus:border-green-600 focus:ring-2 focus:ring-green-500/30";
+  "w-full min-h-11 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-stone-400 focus:border-green-600 focus:ring-2 focus:ring-green-500/30";
 
 export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
@@ -67,8 +67,12 @@ export function Modal({ open, onClose, title, children, wide }: {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between gap-4">
-          <h2 className="text-lg font-bold text-stone-800">{title}</h2>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600" aria-label="Fechar">
+          <h2 className="min-w-0 truncate text-lg font-bold text-stone-800">{title}</h2>
+          <button
+            onClick={onClose}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-600"
+            aria-label="Fechar"
+          >
             <X />
           </button>
         </div>
@@ -102,9 +106,9 @@ export function StatCard({ label, value, accent, sub }: { label: string; value: 
   }[accent];
   return (
     <Card>
-      <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
+      <p className="truncate text-xs font-semibold uppercase tracking-wide text-stone-500" title={typeof label === "string" ? label : undefined}>{label}</p>
       <p className={`mt-1 text-lg sm:text-2xl font-extrabold tabular-nums truncate ${color}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-stone-400">{sub}</p>}
+      {sub && <p className="mt-0.5 truncate text-xs text-stone-400">{sub}</p>}
     </Card>
   );
 }

@@ -55,7 +55,7 @@ const PLANS = [
 const PLAN_ORDER = ["free", "basico", "pro", "premium"];
 
 export default function Upgrade() {
-  const { plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout, isCollaborator } = usePlan();
+  const { plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout, isCollaborator, ownerName, loading } = usePlan();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
@@ -64,22 +64,35 @@ export default function Upgrade() {
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
 
-  // Colaboradores não podem gerenciar planos — redireciona
+  // Aguarda o fetch da licença antes de decidir (evita flash de UI de dono)
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold text-stone-800">Planos & Assinatura</h1>
+        <p className="text-sm text-stone-400">Carregando...</p>
+      </div>
+    );
+  }
+
+  // Colaboradores não podem gerenciar planos — mostra aviso claro
   if (isCollaborator) {
     return (
       <div className="space-y-4">
         <div>
           <h1 className="text-xl font-bold text-stone-800">Planos & Assinatura</h1>
-          <p className="text-sm text-stone-500">
-            Plano definido pelo proprietário da conta.
-          </p>
         </div>
-        <div className="rounded-2xl bg-stone-50 p-6 text-center">
-          <p className="font-semibold text-stone-700">Acesso via colaborador</p>
-          <p className="mt-1 text-sm text-stone-500">
-            Você está acessando como colaborador. O plano é gerenciado pelo proprietário da conta.
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-green-300 bg-green-50/50 px-6 py-12 text-center">
+          <Badge tone="green">Colaborador</Badge>
+          <div className="mb-3 mt-3 text-4xl">🤝</div>
+          <p className="max-w-sm font-semibold text-stone-700">
+            Você é colaborador. O plano é definido pelo proprietário da conta.
           </p>
-          <Button className="mt-4" onClick={() => navigate("/")}>
+          {ownerName && (
+            <p className="mt-2 text-sm text-stone-500">
+              Acesso via: <span className="font-semibold text-stone-700">{ownerName}</span>
+            </p>
+          )}
+          <Button className="mt-5" onClick={() => navigate("/")}>
             Voltar ao Painel
           </Button>
         </div>

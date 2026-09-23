@@ -276,10 +276,9 @@ async function handleUpdate(c, sql, params) {
         } else if (expr.includes("EXCLUDED.")) {
           // ON CONFLICT DO UPDATE SET field = EXCLUDED.field — skip for now
           continue;
-        } else if (expr.includes("${")) {
-          // Template literal — already evaluated
-          update[field] = eval("`" + expr + "`");
         } else {
+          // SEM eval: qualquer expressão não-`?`/NOW()/EXCLUDED consome o próximo
+          // parâmetro posicional (o eval antigo era vetor de injeção de código).
           update[field] = params[paramIdx++];
         }
       }

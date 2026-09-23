@@ -17,6 +17,16 @@ function getExtension(filename) {
   return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
 }
 
+/** Só permite extensões da whitelist (evita .svg/.html etc. no GridFS). */
+function getAllowedExtension(ext) {
+  return ALLOWED_EXTENSIONS.includes(ext) ? ext : ".jpg";
+}
+
+/** Remove caracteres perigosos do nome exibido (path traversal / HTML). */
+function sanitizeFilename(name) {
+  return String(name).replace(/[<>"'`/\\]/g, "").slice(0, 200) || "photo.jpg";
+}
+
 function validateImageFile(file) {
   if (file.size > MAX_FILE_SIZE) {
     throw new Error(`Arquivo excede o limite de 5MB (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
@@ -111,8 +121,8 @@ router.post("/", asyncHandler(async (req, res) => {
 
     validateImageFile(file);
 
-    const plantio_id = fields.plantio_id || "";
-    const lote_id = fields.lote_id || "";
+    const plantio_id = typeof fields.plantio_id === "string" ? fields.plantio_id : "";
+    const lote_id = typeof fields.lote_id === "string" ? fields.lote_id : "";
 
     // Check photo count limit
     const photoCount = await (await col("photos_metadata")).countDocuments({ user_id: req.user.uid });
@@ -120,7 +130,7 @@ router.post("/", asyncHandler(async (req, res) => {
 
     // Upload to GridFS
     const bucket = getGridFSBucket();
-    const ext = getExtension(file.originalname) || ".jpg";
+    const ext = getAllowedExtension(getExtension(file.originalname));
     const filename = `${req.user.uid}/${Date.now()}${ext}`;
 
     const uploadStream = bucket.openUploadStream(filename, {
@@ -140,7 +150,7 @@ router.post("/", asyncHandler(async (req, res) => {
       user_id: req.user.uid,
       plantio_id,
       lote_id,
-      filename: file.originalname,
+      filename: sanitizeFilename(file.originalname),
       mimetype: file.mimetype,
       size: file.size,
       gridfs_id: uploadStream.id.toString(),
@@ -152,7 +162,7 @@ router.post("/", asyncHandler(async (req, res) => {
   } else if (contentType.includes("application/json")) {
     // Handle base64 JSON
     const { plantio_id, lote_id, filename, mimetype, data } = req.body || {};
-    if (!data) {
+    if (typeof data !== "string" || !data) {
       return res.status(400).json({ error: "Campo 'data' (base64) obrigatório." });
     }
 
@@ -161,16 +171,20 @@ router.post("/", asyncHandler(async (req, res) => {
       return res.status(400).json({ error: `Arquivo excede o limite de 5MB` });
     }
 
-    const finalMimetype = mimetype || "image/jpeg";
+    const finalMimetype = typeof mimetype === "string" && mimetype ? mimetype : "image/jpeg";
     if (!ALLOWED_TYPES.includes(finalMimetype)) {
       return res.status(400).json({ error: `Tipo não permitido: ${finalMimetype}` });
     }
+
+    const safeFilename = typeof filename === "string" && filename ? filename : "photo.jpg";
+    const plantioRef = typeof plantio_id === "string" ? plantio_id : "";
+    const loteRef = typeof lote_id === "string" ? lote_id : "";
 
     const photoCount = await (await col("photos_metadata")).countDocuments({ user_id: req.user.uid });
     await checkPhotoLimit(req.user.uid, photoCount);
 
     const bucket = getGridFSBucket();
-    const ext = getExtension(filename || "photo.jpg") || ".jpg";
+    const ext = getAllowedExtension(getExtension(safeFilename));
     const gfFilename = `${req.user.uid}/${Date.now()}${ext}`;
 
     const uploadStream = bucket.openUploadStream(gfFilename, {
@@ -187,9 +201,9 @@ router.post("/", asyncHandler(async (req, res) => {
     const metadata = {
       _id: new ObjectId().toHexString(),
       user_id: req.user.uid,
-      plantio_id: plantio_id || "",
-      lote_id: lote_id || "",
-      filename: filename || "photo.jpg",
+      plantio_id: plantioRef,
+      lote_id: loteRef,
+      filename: sanitizeFilename(safeFilename),
       mimetype: finalMimetype,
       size: buffer.length,
       gridfs_id: uploadStream.id.toString(),

@@ -76,7 +76,12 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "256kb" }));
+app.use((req, res, next) => {
+  // O webhook do Stripe precisa do body BRUTO (express.raw) — o express.json
+  // global consumiria o body e quebraria a verificação de assinatura.
+  if (req.path === "/api/upgrade/webhook") return next();
+  express.json({ limit: "256kb" })(req, res, next);
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -181,7 +186,9 @@ if (!IS_VERCEL) {
 app.use((err, _req, res, _next) => {
   console.error("Erro:", err?.message || err);
   console.error("Stack:", err?.stack);
-  res.status(500).json({ error: IS_PROD ? (err?.message || "Erro interno") : "Erro interno" });
+  // Em produção NÃO vaza a mensagem interna do erro (pode conter detalhes
+  // de infraestrutura); em dev mostramos para facilitar o debug.
+  res.status(500).json({ error: IS_PROD ? "Erro interno" : (err?.message || "Erro interno") });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
