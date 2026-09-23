@@ -15,15 +15,15 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 // Modelos fallback (tentados em ordem se o primário falhar).
-// NÃO incluir gemini-2.0-flash nem gemini-2.5-pro — API retorna 404
-// "no longer available to new users".
+// NÃO incluir gemini-2.0-flash, gemini-2.5-pro nem gemini-2.5-flash-lite —
+// a API retorna 404 "no longer available to new users" e sugere 3.x.
 const FALLBACK_MODELS = [
   MODEL,
   "gemini-3.6-flash",
-  "gemini-2.5-flash",
-  "gemini-3.1-flash-preview",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
   "gemini-3.1-pro-preview",
-  "gemini-2.5-flash-lite",
+  "gemini-3.1-flash-preview",
 ].filter((m, i, a) => a.indexOf(m) === i); // remove duplicados
 
 const MAX_RETRIES = 2;
@@ -112,6 +112,7 @@ export async function aiChat({
 
   // Tenta cada modelo com retries
   let lastErr;
+  const tried = [];
   for (const model of FALLBACK_MODELS) {
     let bodyTry = body;
     let stripped = false;
@@ -120,6 +121,7 @@ export async function aiChat({
         return await callModel(model, key, bodyTry);
       } catch (err) {
         lastErr = err;
+        tried.push(`${model}:${err.status}`);
         // 400 com thinkingConfig → remove config e tenta o MESMO modelo de novo
         if (!stripped && err.status === 400) {
           bodyTry = stripUnsupportedConfig(body);
@@ -144,6 +146,9 @@ export async function aiChat({
     // Modelo falhou, tenta o próximo fallback
   }
 
+  if (lastErr) {
+    lastErr.message = `${lastErr.message} [tried: ${tried.join(", ")}]`;
+  }
   throw lastErr;
 }
 
