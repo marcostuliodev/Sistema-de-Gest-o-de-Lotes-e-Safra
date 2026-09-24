@@ -6,7 +6,6 @@ import { NetworkFirst, NetworkOnly } from "workbox-strategies";
 // Cast para any evita conflito de libs e mantém o SW funcional.
 const sw: any = self;
 
-sw.addEventListener("install", () => sw.skipWaiting());
 sw.addEventListener("activate", (event: any) =>
   event.waitUntil(
     Promise.all([
@@ -17,6 +16,12 @@ sw.addEventListener("activate", (event: any) =>
     ])
   )
 );
+
+// O Workbox envia SKIP_WAITING quando o usuário toca em "Atualizar agora".
+// Assim a nova versão só assume o controle após a ação explícita.
+sw.addEventListener("message", (event: any) => {
+  if (event.data === "SKIP_WAITING") void sw.skipWaiting();
+});
 
 // Navegações usam o shell HTML precacheado. Isso permite abrir uma rota
 // profunda como /lotes ou /plantios mesmo sem rede e sem visita anterior.

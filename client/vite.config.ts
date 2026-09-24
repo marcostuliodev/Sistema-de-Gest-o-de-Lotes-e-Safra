@@ -12,7 +12,7 @@ export default defineConfig({
       srcDir: "src",
       filename: "sw.ts",
       injectRegister: false,
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"],
       manifest: {
         name: "Agrolote — Gestão de Lotes e Safra",
