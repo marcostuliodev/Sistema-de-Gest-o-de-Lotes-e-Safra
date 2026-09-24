@@ -39,10 +39,12 @@ const refreshOutbox = useCallback(() => {
     const onOnline = () => { setOnline(true); };
     const onOffline = () => setOnline(false);
     const onSync = () => refreshOutbox();
+    const onOutboxChange = () => refreshOutbox();
     const onLogout = () => setSessionState(null);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     window.addEventListener("agrolote:synced", onSync);
+    window.addEventListener("agrolote:outbox-change", onOutboxChange);
     window.addEventListener("agrolote:logout", onLogout);
     refreshOutbox();
     const outboxInterval = setInterval(refreshOutbox, 10000);
@@ -50,16 +52,19 @@ const refreshOutbox = useCallback(() => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("agrolote:synced", onSync);
+      window.removeEventListener("agrolote:outbox-change", onOutboxChange);
       window.removeEventListener("agrolote:logout", onLogout);
       clearInterval(outboxInterval);
     };
   }, [refreshOutbox]);
 
-const doLogin = async (email: string, pass: string) => {
+  const doLogin = async (email: string, pass: string) => {
     const s = await login(email, pass);
     setSessionState(s);
-    await prepareFreshStore(s.user.id);
-    await pullServer().catch(() => undefined);
+    void prepareFreshStore(s.user.id);
+    // A sessão e os dados locais já estão prontos; não bloqueia o login
+    // aguardando o snapshot remoto.
+    void pullServer();
   };
   // Register NÃO cria sessão (sem cookie no body) — o fluxo de UI de cadastro
   // é login.tsx, que mostra a tela genérica e manda o usuário logar depois.
@@ -73,7 +78,9 @@ const doLogin = async (email: string, pass: string) => {
     void logout();
     setSession(null);
     setSessionState(null);
-    void db.outbox.clear();
+    void db.outbox.clear().then(() => {
+      window.dispatchEvent(new Event("agrolote:outbox-change"));
+    });
   };
 
   const doResendVerification = async (email: string) => {

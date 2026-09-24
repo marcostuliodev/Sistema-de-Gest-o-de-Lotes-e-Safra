@@ -89,12 +89,15 @@ async function applyOp(entity, action, row, uid) {
 }
 
 async function snapshot(uid) {
-  const out = {};
-  for (const entity of ENTITIES) {
-    const c = await col(entity);
-    out[entity] = await c.find({ user_id: uid }).toArray();
-  }
-  return sanitizeSnapshot(out);
+  // As cinco leituras são independentes; executar em paralelo reduz o tempo
+  // de resposta sem alterar os dados ou a ordem de aplicação das operações.
+  const entries = await Promise.all(
+    ENTITIES.map(async (entity) => {
+      const c = await col(entity);
+      return [entity, await c.find({ user_id: uid }).toArray()];
+    })
+  );
+  return sanitizeSnapshot(Object.fromEntries(entries));
 }
 
 router.post("/", asyncHandler(async (req, res) => {

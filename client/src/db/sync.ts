@@ -6,6 +6,18 @@ import type { Table } from "dexie";
 const SYNC_BATCH_SIZE = 40; // abaixo do limite de 100 ops do servidor
 
 let syncing = false;
+let syncRequested = false;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Agenda sync em background sem adicionar atraso artificial ao salvamento local. */
+function requestSync() {
+  syncRequested = true;
+  if (syncing || syncTimer !== null) return;
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    void runSync();
+  }, 0);
+}
 
 /** Grava localmente + enfileira para sync. Funciona 100% offline. */
 export async function saveLocal(entity: EntityName, record: { id: string }) {
@@ -14,7 +26,8 @@ export async function saveLocal(entity: EntityName, record: { id: string }) {
     await table.put(record);
     await db.outbox.add({ op: { entity, action: "upsert", data: record }, created_at: Date.now() });
   });
-  fireSyncDebounced();
+  window.dispatchEvent(new Event("agrolote:outbox-change"));
+  requestSync();
 }
 
 /** Remove localmente + enfileira. */
@@ -24,18 +37,14 @@ export async function removeLocal(entity: EntityName, id: string) {
     await table.delete(id);
     await db.outbox.add({ op: { entity, action: "delete", data: { id } }, created_at: Date.now() });
   });
-  fireSyncDebounced();
+  window.dispatchEvent(new Event("agrolote:outbox-change"));
+  requestSync();
 }
 
 export async function outboxCount() {
   return db.outbox.count();
 }
 
-/**
- * Envia apenas o que está pendente. Reenviar todos os registros locais a cada
- * sync duplicava operações e podia ultrapassar o limite de 100 do servidor,
- * deixando o outbox travado para sempre.
- */
 async function pendingOps(): Promise<OutboxRow[]> {
   return db.outbox.orderBy("created_at").toArray();
 }
@@ -47,23 +56,36 @@ async function applySnapshot(result: { snapshot: any; serverTime: string }) {
 }
 
 async function runSync(): Promise<boolean> {
-  if (syncing || !isOnline()) return false;
-  const pending = await pendingOps();
-  if (pending.length === 0) return false;
+  if (!isOnline()) return false;
+  if (syncing) {
+    syncRequested = true;
+    return false;
+  }
+
+  if (syncTimer !== null) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
 
   syncing = true;
   try {
-    for (let start = 0; start < pending.length; start += SYNC_BATCH_SIZE) {
-      const batch = pending.slice(start, start + SYNC_BATCH_SIZE);
-      const result = await pushSync(batch.map((row) => row.op));
-      if (!result?.snapshot) return false;
+    do {
+      syncRequested = false;
+      const pending = await pendingOps();
+      if (pending.length === 0) break;
 
-      await applySnapshot(result);
-      const ids = batch
-        .map((row) => row.id)
-        .filter((id): id is number => typeof id === "number");
-      if (ids.length > 0) await db.outbox.bulkDelete(ids);
-    }
+      for (let start = 0; start < pending.length; start += SYNC_BATCH_SIZE) {
+        const batch = pending.slice(start, start + SYNC_BATCH_SIZE);
+        const result = await pushSync(batch.map((row) => row.op));
+        if (!result?.snapshot) return false;
+
+        await applySnapshot(result);
+        const ids = batch
+          .map((row) => row.id)
+          .filter((id): id is number => typeof id === "number");
+        if (ids.length > 0) await db.outbox.bulkDelete(ids);
+      }
+    } while (syncRequested || (await outboxCount()) > 0);
 
     window.dispatchEvent(new CustomEvent("agrolote:synced"));
     return true;
@@ -73,6 +95,7 @@ async function runSync(): Promise<boolean> {
     return false;
   } finally {
     syncing = false;
+    if (syncRequested && isOnline()) requestSync();
   }
 }
 
@@ -90,27 +113,24 @@ export async function pullServer() {
   }
 }
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-function fireSyncDebounced() {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => void runSync(), 1500);
-}
-
 export function startSyncWatcher(): () => void {
-  const onOnline = () => void runSync();
-  const onLocal = () => void runSync();
-  const onVisibility = () => { if (document.visibilityState === "visible") void runSync(); };
+  const onOnline = () => requestSync();
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") requestSync();
+  };
   window.addEventListener("online", onOnline);
-  window.addEventListener("agrolote:local-change", onLocal);
-  window.addEventListener("agrolote:synced", onLocal);
+  window.addEventListener("agrolote:outbox-change", requestSync);
+  window.addEventListener("agrolote:local-change", requestSync);
   window.addEventListener("visibilitychange", onVisibility);
-  const intervalId = setInterval(() => void runSync(), 60000);
+  const intervalId = setInterval(() => requestSync(), 60000);
+  requestSync();
   return () => {
     window.removeEventListener("online", onOnline);
-    window.removeEventListener("agrolote:local-change", onLocal);
-    window.removeEventListener("agrolote:synced", onLocal);
+    window.removeEventListener("agrolote:outbox-change", requestSync);
+    window.removeEventListener("agrolote:local-change", requestSync);
     window.removeEventListener("visibilitychange", onVisibility);
     clearInterval(intervalId);
+    if (syncTimer !== null) clearTimeout(syncTimer);
   };
 }
 

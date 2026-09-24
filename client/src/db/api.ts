@@ -91,15 +91,22 @@ export async function verifyEmail(token: string): Promise<{ ok: boolean; message
 }
 
 export async function pushSync(ops: SyncOp[]): Promise<{ snapshot: Snapshot; serverTime: string } | null> {
-  const res = await request("/api/sync", {
-    method: "POST",
-    body: JSON.stringify({ ops }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Falha na sincronização");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await request("/api/sync", {
+      method: "POST",
+      body: JSON.stringify({ ops }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Falha na sincronização");
+    }
+    return res.json();
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return res.json();
 }
 
 export async function fetchReports() {
