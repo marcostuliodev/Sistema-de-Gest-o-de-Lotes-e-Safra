@@ -74,16 +74,36 @@ async function runSync(): Promise<boolean> {
       const pending = await pendingOps();
       if (pending.length === 0) break;
 
+      let rejectedOps: { index: number; entity: string | null; action: string | null; code: string }[] = [];
       for (let start = 0; start < pending.length; start += SYNC_BATCH_SIZE) {
         const batch = pending.slice(start, start + SYNC_BATCH_SIZE);
         const result = await pushSync(batch.map((row) => row.op));
         if (!result?.snapshot) return false;
 
         await applySnapshot(result);
-        const ids = batch
+        const appliedIndexes = result.appliedOpIndexes ?? batch.map((_, index) => index);
+        const appliedRows = appliedIndexes
+          .map((index) => batch[index])
+          .filter((row): row is OutboxRow => !!row);
+        const ids = appliedRows
           .map((row) => row.id)
           .filter((id): id is number => typeof id === "number");
         if (ids.length > 0) await db.outbox.bulkDelete(ids);
+        rejectedOps = rejectedOps.concat(result.failedOps || []);
+      }
+
+      if (rejectedOps.length > 0) {
+        const planRejected = rejectedOps.filter((op) => op.code === "PLAN_LIMIT").length;
+        const invalidRejected = rejectedOps.length - planRejected;
+        const parts = [
+          planRejected > 0 ? `${planRejected} registro(s) atingiram o limite do plano` : "",
+          invalidRejected > 0 ? `${invalidRejected} registro(s) possuem dados inválidos` : "",
+        ].filter(Boolean);
+        window.dispatchEvent(new Event("agrolote:outbox-change"));
+        window.dispatchEvent(new CustomEvent("agrolote:sync-error", {
+          detail: `${parts.join(" e ")}. Os registros aceitos já foram sincronizados.`,
+        }));
+        return false;
       }
     } while (syncRequested || (await outboxCount()) > 0);
 

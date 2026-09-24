@@ -5,6 +5,7 @@ import { saveLocal, removeLocal } from "../db/sync";
 import type { EntityName } from "../db/types";
 import { Button, Card, EmptyState, Field, Form, Modal, Select, TextInput, currencyToNumber } from "./ui";
 import { Pencil, Plus, Trash } from "./icons";
+import { usePlan } from "../store/plan";
 
 export interface FieldDef {
   name: string;
@@ -43,6 +44,7 @@ function defaultValueFor(field: FieldDef) {
 
 export function CrudPage({ config }: { config: CrudConfig }) {
   const { entity } = config;
+  const { features } = usePlan();
   const rows = useLiveQuery(() => (db[entity] as any).orderBy("id").reverse().toArray(), [entity]) as Record<string, any>[] | undefined;
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -83,6 +85,10 @@ export function CrudPage({ config }: { config: CrudConfig }) {
         if (f.required && (values[f.name] === undefined || values[f.name] === "" || values[f.name] === null || values[f.name] === "__placeholder")) {
           throw new Error(`Preencha o campo "${f.label}"`);
         }
+      }
+      const localLimit = entity === "lotes" ? features.maxLotes : entity === "plantios" ? features.maxPlantios : Infinity;
+      if (!editing && Number.isFinite(localLimit) && allRows.length >= localLimit) {
+        throw new Error(`Limite do plano atingido (${localLimit} ${entity === "lotes" ? "lotes" : "plantios"}). Faça upgrade para continuar.`);
       }
       const payload: Record<string, any> = { ...values, id: editing?.id ?? crypto.randomUUID() };
       const extra = config.beforeSave ? config.beforeSave(payload, !editing) : payload;

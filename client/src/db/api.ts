@@ -98,7 +98,14 @@ export async function verifyEmail(token: string): Promise<{ ok: boolean; message
   return data;
 }
 
-export async function pushSync(ops: SyncOp[]): Promise<{ snapshot: Snapshot; serverTime: string } | null> {
+export interface SyncResult {
+  snapshot: Snapshot;
+  serverTime: string;
+  appliedOpIndexes?: number[];
+  failedOps?: { index: number; entity: string | null; action: string | null; code: string }[];
+}
+
+export async function pushSync(ops: SyncOp[]): Promise<SyncResult | null> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15_000);
   try {

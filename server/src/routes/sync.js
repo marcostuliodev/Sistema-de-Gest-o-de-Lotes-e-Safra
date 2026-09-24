@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { col, copyable, bumpUsersSequence } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { entitySchemas, sanitizeSnapshot, sanitizeText } from "../validation.js";
+import { entitySchemas, sanitizeSnapshot } from "../validation.js";
 import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
 
 const router = Router();
@@ -19,6 +19,12 @@ const LIMITED_ENTITIES = {
   plantios: "maxPlantios",
 };
 
+function planLimitError(message) {
+  const error = new Error(message);
+  error.code = "PLAN_LIMIT";
+  return error;
+}
+
 async function assertCreateWithinPlanLimit(entity, uid) {
   const limitKey = LIMITED_ENTITIES[entity];
   if (!limitKey) return;
@@ -29,15 +35,15 @@ async function assertCreateWithinPlanLimit(entity, uid) {
   const max = features[limitKey];
 
   if (max === Infinity) return;
-  // max === 0 → plano sem acesso à entidade (não pula o check)
   if (max <= 0) {
-    throw new Error(
+    throw planLimitError(
       `Seu plano nao permite ${limitKey === "maxLotes" ? "lotes" : "plantios"}. Faca upgrade do seu plano.`
     );
   }
+
   const count = await (await col(entity)).countDocuments({ user_id: ownerId });
   if (count >= max) {
-    throw new Error(
+    throw planLimitError(
       `Limite de ${limitKey === "maxLotes" ? "lotes" : "plantios"} atingido (${max}). Faca upgrade do seu plano.`
     );
   }
@@ -74,16 +80,12 @@ async function applyOp(entity, action, row, uid) {
   if (existing) {
     if (existing.user_id !== uid) return;
     const update = {};
-    for (const f of fields) {
-      update[f] = data[f];
-    }
+    for (const f of fields) update[f] = data[f];
     await c.updateOne({ _id: id }, { $set: update });
   } else {
     await assertCreateWithinPlanLimit(entity, uid);
     const doc = { _id: id, id, user_id: uid };
-    for (const f of fields) {
-      doc[f] = data[f];
-    }
+    for (const f of fields) doc[f] = data[f];
     await c.insertOne(doc);
   }
 }
@@ -100,38 +102,79 @@ async function snapshot(uid) {
   return sanitizeSnapshot(Object.fromEntries(entries));
 }
 
+function invalidOperation(message = "Dados invalidos no sync") {
+  const error = new Error(message);
+  error.code = "SYNC_INVALID";
+  return error;
+}
+
+function operationFailure(op, index, error) {
+  return {
+    index,
+    entity: typeof op?.entity === "string" ? op.entity : null,
+    action: typeof op?.action === "string" ? op.action : null,
+    code: error?.code === "PLAN_LIMIT" ? "PLAN_LIMIT" : "SYNC_INVALID",
+  };
+}
+
 router.post("/", asyncHandler(async (req, res) => {
   const uid = req.user.uid;
   const ops = Array.isArray(req.body?.ops) ? req.body.ops : [];
   if (ops.length > MAX_OPS) {
-    return res.status(400).json({ error: `Muitos operacoes (max ${MAX_OPS})` });
+    return res.status(400).json({
+      error: `Muitos operacoes (max ${MAX_OPS})`,
+      code: "TOO_MANY_OPS",
+    });
   }
+
   try {
     await ensureUser(req.user);
-    for (const op of ops) {
-      if (!ENTITIES.includes(op.entity)) continue;
-      const action = op.action || "upsert";
-      if (action === "delete") {
-        if (!op.data?.id) throw new Error("id obrigatorio para deletar");
-      } else {
-        const schema = entitySchemas[op.entity];
-        if (schema) {
-          const parsed = schema.safeParse(op.data || {});
-          if (!parsed.success) {
-            throw new Error(parsed.error.errors[0]?.message || "Dados invalidos no sync");
+    const appliedOpIndexes = [];
+    const failedOps = [];
+
+    // Processa cada operação isoladamente. Uma rejeição de plano ou validação
+    // não impede que os demais registros do lote sejam sincronizados.
+    for (const [index, op] of ops.entries()) {
+      try {
+        if (!op || !ENTITIES.includes(op.entity)) throw invalidOperation("Entidade invalida");
+        const action = op.action || "upsert";
+        if (action !== "upsert" && action !== "delete") throw invalidOperation("Acao invalida");
+
+        if (action === "delete") {
+          if (!op.data?.id) throw invalidOperation("id obrigatorio para deletar");
+        } else {
+          const schema = entitySchemas[op.entity];
+          if (schema) {
+            const parsed = schema.safeParse(op.data || {});
+            if (!parsed.success) {
+              throw invalidOperation(parsed.error.errors[0]?.message || "Dados invalidos no sync");
+            }
           }
         }
+
+        await applyOp(op.entity, action, op.data || {}, uid);
+        appliedOpIndexes.push(index);
+      } catch (error) {
+        failedOps.push(operationFailure(op, index, error));
       }
-      await applyOp(op.entity, action, op.data || {}, uid);
     }
+
     const snap = await snapshot(uid);
-    res.json({ ok: true, snapshot: snap, serverTime: new Date().toISOString() });
+    res.json({
+      ok: failedOps.length === 0,
+      snapshot: snap,
+      serverTime: new Date().toISOString(),
+      appliedOpIndexes,
+      failedOps,
+    });
   } catch (err) {
     const isProd = process.env.NODE_ENV === "production";
-    return res.status(400).json({ error: isProd ? "Sincronizacao falhou" : err.message });
+    return res.status(400).json({
+      error: isProd ? "Sincronizacao falhou" : err.message,
+      code: err?.code || "SYNC_UNAVAILABLE",
+    });
   }
 }));
 
 export { snapshot, ENTITIES };
-
 export default router;
