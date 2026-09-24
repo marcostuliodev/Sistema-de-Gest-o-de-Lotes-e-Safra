@@ -137,8 +137,56 @@ export function CrudPage({ config }: { config: CrudConfig }) {
         />
       ) : (
         <Card className="overflow-hidden p-0">
-          <div className="scroll-thin overflow-x-auto">
-            <table className="w-full min-w-[560px] md:min-w-0 text-sm">
+          {/* Mobile: cards para mostrar todas as colunas sem cortar a tela. */}
+          <div className="divide-y divide-stone-100 md:hidden">
+            {filtered.map((row) => (
+              <article key={row.id} className="min-w-0 p-4">
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                  {config.columns.map((c) => {
+                    const value = row[c.key];
+                    return (
+                      <div key={c.key} className="min-w-0">
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-stone-400">
+                          {c.header}
+                        </p>
+                        <div className="min-w-0 break-words text-sm text-stone-700">
+                          {c.render ? (
+                            c.render(row)
+                          ) : value === null || value === undefined || value === "" ? (
+                            <span className="text-stone-400">—</span>
+                          ) : (
+                            String(value)
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end gap-2 border-t border-stone-100 pt-3">
+                  <Button
+                    variant="ghost"
+                    onClick={() => openEdit(row)}
+                    title="Editar"
+                    className="min-h-11 px-3"
+                  >
+                    <Pencil /> <span>Editar</span>
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => del(row)}
+                    title="Excluir"
+                    className="min-h-11 px-3"
+                  >
+                    <Trash /> <span>Excluir</span>
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {/* Tablet/desktop: tabela completa com rolagem apenas quando necessário. */}
+          <div className="scroll-thin hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-stone-200 bg-stone-50 text-left text-xs uppercase tracking-wide text-stone-500">
                   {config.columns.map((c) => (
