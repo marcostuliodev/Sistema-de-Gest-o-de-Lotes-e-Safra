@@ -51,15 +51,24 @@ async function assertCreateWithinPlanLimit(entity, uid) {
 
 async function ensureUser(user) {
   const users = await col("users");
-  const exists = await users.findOne({ _id: user.uid });
+  // Contas legadas podem ter _id ObjectId e o id de aplicação numérico.
+  // O JWT usa user.id, portanto procurar apenas por _id não encontra o admin
+  // e tentava inserir um documento duplicado (falha no índice único de e-mail).
+  const identity = user.uid;
+  const or = [];
+  if (identity !== undefined && identity !== null) {
+    or.push({ _id: identity }, { id: identity });
+  }
+  if (user.email) or.push({ email: user.email });
+  const exists = or.length > 0 ? await users.findOne({ $or: or }) : null;
   if (exists) return;
   const hash = await bcrypt.hash(crypto.randomBytes(24).toString("hex"), 10);
   const name = (user.email || "Produtor").split("@")[0] || "Produtor";
   await users.insertOne({
-    _id: user.uid,
-    id: user.uid,
+    _id: identity,
+    id: identity,
     name,
-    email: user.email || `u${user.uid}@local`,
+    email: user.email || `u${identity}@local`,
     password_hash: hash,
   });
   await bumpUsersSequence();
