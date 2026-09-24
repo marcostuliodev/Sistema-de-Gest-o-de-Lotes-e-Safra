@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getSession, login, register, setSession, logout, resendVerification, type AuthSession } from "../db/api";
 import { db } from "../db/db";
-import { pullServer } from "../db/sync";
+import { pullServer, runSync } from "../db/sync";
 
 const LAST_USER_KEY = "agrolote_last_user";
 
@@ -18,6 +18,7 @@ interface AuthCtx {
   session: AuthSession | null;
   pendingSync: number;
   online: boolean;
+  syncError: string | null;
   login: (email: string, pass: string) => Promise<void>;
   register: (name: string, email: string, pass: string) => Promise<AuthSession>;
   logout: () => void;
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<AuthSession | null>(getSession());
   const [pendingSync, setPendingSync] = useState(0);
   const [online, setOnline] = useState(navigator.onLine);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
 const refreshOutbox = useCallback(() => {
     db.outbox.count().then(setPendingSync).catch(() => setPendingSync(0));
@@ -38,14 +40,23 @@ const refreshOutbox = useCallback(() => {
   useEffect(() => {
     const onOnline = () => { setOnline(true); };
     const onOffline = () => setOnline(false);
-    const onSync = () => refreshOutbox();
+    const onSync = () => {
+      setSyncError(null);
+      refreshOutbox();
+    };
     const onOutboxChange = () => refreshOutbox();
+    const onSyncError = (event: Event) => {
+      setSyncError((event as CustomEvent<string>).detail || "Não foi possível sincronizar agora.");
+    };
     const onLogout = () => setSessionState(null);
+    const onReauthRequired = () => setSessionState(null);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     window.addEventListener("agrolote:synced", onSync);
     window.addEventListener("agrolote:outbox-change", onOutboxChange);
     window.addEventListener("agrolote:logout", onLogout);
+    window.addEventListener("agrolote:reauth-required", onReauthRequired);
+    window.addEventListener("agrolote:sync-error", onSyncError);
     refreshOutbox();
     const outboxInterval = setInterval(refreshOutbox, 10000);
     return () => {
@@ -54,17 +65,21 @@ const refreshOutbox = useCallback(() => {
       window.removeEventListener("agrolote:synced", onSync);
       window.removeEventListener("agrolote:outbox-change", onOutboxChange);
       window.removeEventListener("agrolote:logout", onLogout);
+      window.removeEventListener("agrolote:reauth-required", onReauthRequired);
+      window.removeEventListener("agrolote:sync-error", onSyncError);
       clearInterval(outboxInterval);
     };
   }, [refreshOutbox]);
 
   const doLogin = async (email: string, pass: string) => {
     const s = await login(email, pass);
+    setSyncError(null);
     setSessionState(s);
     void prepareFreshStore(s.user.id);
     // A sessão e os dados locais já estão prontos; não bloqueia o login
-    // aguardando o snapshot remoto.
-    void pullServer();
+    // aguardando o snapshot remoto. Depois do pull, envia imediatamente
+    // qualquer operação que ficou pendente enquanto o cookie expirava.
+    void pullServer().then(() => runSync());
   };
   // Register NÃO cria sessão (sem cookie no body) — o fluxo de UI de cadastro
   // é login.tsx, que mostra a tela genérica e manda o usuário logar depois.
@@ -88,7 +103,7 @@ const refreshOutbox = useCallback(() => {
   };
 
   return (
-    <Ctx.Provider value={{ session, pendingSync, online, login: doLogin, register: doRegister, logout: doLogout, resendVerification: doResendVerification }}>
+      <Ctx.Provider value={{ session, pendingSync, online, syncError, login: doLogin, register: doRegister, logout: doLogout, resendVerification: doResendVerification }}>
       {children}
     </Ctx.Provider>
   );

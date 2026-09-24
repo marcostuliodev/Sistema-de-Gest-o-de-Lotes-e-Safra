@@ -51,7 +51,7 @@ function Sparkles({}: {}) {
 }
 
 export default function Layout() {
-  const { session, logout, pendingSync, online, resendVerification } = useAuth();
+  const { session, logout, pendingSync, online, resendVerification, syncError } = useAuth();
   const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator, loading: planLoading } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -118,6 +118,11 @@ export default function Layout() {
               Reenviar
             </button>
           )}
+        </div>
+      )}
+      {syncError && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-medium text-amber-800" role="alert">
+          {syncError}
         </div>
       )}
       {!planLoading && !isCollaborator && status === "trial" && trialRemaining >= 0 && trialRemaining <= 3 && (

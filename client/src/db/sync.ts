@@ -91,7 +91,16 @@ async function runSync(): Promise<boolean> {
     return true;
   } catch (err) {
     if (import.meta.env.DEV) console.warn("Sync falhou (modo offline):", err);
-    window.dispatchEvent(new CustomEvent("agrolote:sync-error"));
+    const status = (err as Error & { status?: number }).status;
+    const message = status === 401
+      ? "Sua sessão expirou. Entre novamente para enviar os dados pendentes."
+      : status === 400
+        ? "Um registro foi rejeitado pelo servidor. Verifique os dados e o limite do plano."
+        : "Não foi possível sincronizar agora. Seus dados continuam salvos neste aparelho.";
+    if (status === 401) {
+      window.dispatchEvent(new CustomEvent("agrolote:reauth-required"));
+    }
+    window.dispatchEvent(new CustomEvent("agrolote:sync-error", { detail: message }));
     return false;
   } finally {
     syncing = false;

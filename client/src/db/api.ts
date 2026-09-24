@@ -31,9 +31,17 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
   // Autenticação via cookie HttpOnly (enviado automaticamente pelo navegador).
   const res = await fetch(path, { ...options, headers, credentials: "include" });
-  if (res.status === 401 && !path.includes("/auth/login") && !path.includes("/api/sync")) {
-    setSession(null);
-    window.dispatchEvent(new CustomEvent("agrolote:logout"));
+  const isSyncRequest = path === "/api/sync";
+  if (res.status === 401 && !path.includes("/auth/login")) {
+    if (isSyncRequest) {
+      // A sessão local pode continuar válida, mas o cookie HttpOnly expirou.
+      // Limpa somente a sessão exibida; o IndexedDB/outbox fica preservado.
+      setSession(null);
+      window.dispatchEvent(new CustomEvent("agrolote:reauth-required"));
+    } else {
+      setSession(null);
+      window.dispatchEvent(new CustomEvent("agrolote:logout"));
+    }
   }
   return res;
 }
@@ -101,7 +109,13 @@ export async function pushSync(ops: SyncOp[]): Promise<{ snapshot: Snapshot; ser
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Falha na sincronização");
+      const error = new Error(data.error || "Falha na sincronização") as Error & {
+        status?: number;
+        code?: string;
+      };
+      error.status = res.status;
+      error.code = data.code;
+      throw error;
     }
     return res.json();
   } finally {
