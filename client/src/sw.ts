@@ -20,7 +20,9 @@ sw.addEventListener("activate", (event: any) =>
 // O Workbox envia SKIP_WAITING quando o usuário toca em "Atualizar agora".
 // Assim a nova versão só assume o controle após a ação explícita.
 sw.addEventListener("message", (event: any) => {
-  if (event.data === "SKIP_WAITING") void sw.skipWaiting();
+  // Workbox envia { type: "SKIP_WAITING" }; versões antigas usavam string.
+  const messageType = typeof event.data === "string" ? event.data : event.data?.type;
+  if (messageType === "SKIP_WAITING") void sw.skipWaiting();
 });
 
 // Navegações usam o shell HTML precacheado. Isso permite abrir uma rota

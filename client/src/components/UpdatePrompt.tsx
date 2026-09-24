@@ -48,9 +48,38 @@ export function UpdatePrompt() {
     if (applying) return;
     setApplying(true);
     setError("");
+
+    let timeoutId: number | undefined;
+    const controllerChanged = new Promise<boolean>((resolve) => {
+      if (!("serviceWorker" in navigator)) {
+        resolve(true);
+        return;
+      }
+      const onControllerChange = () => {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        resolve(true);
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", onControllerChange, { once: true });
+      timeoutId = window.setTimeout(() => {
+        navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+        resolve(false);
+      }, 8_000);
+    });
+
     try {
-      // O prompt do Workbox envia SKIP_WAITING; o sw.ts ativa a nova versão.
-      await updateServiceWorker(true);
+      // Envia o protocolo correto do Workbox e cobre registros que ainda não
+      // recebem a referência do hook.
+      registrationRef.current?.waiting?.postMessage({ type: "SKIP_WAITING" });
+      const updateAttempt = updateServiceWorker(true).catch(() => undefined);
+      await Promise.race([
+        updateAttempt,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 3000)),
+      ]);
+      const changed = await controllerChanged;
+      if (!changed) {
+        setError("A atualização demorou. Toque em Atualizar novamente.");
+        setApplying(false);
+      }
     } catch {
       setError("Não foi possível atualizar. Tente novamente.");
       setApplying(false);
