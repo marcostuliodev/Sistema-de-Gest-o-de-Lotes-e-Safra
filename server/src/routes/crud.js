@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { v4 as uuid } from "uuid";
-import { col, copyable, requiredFor } from "../db.js";
+import { col, copyable } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { parseEntity, sanitizeSnapshot, sanitizeRow } from "../validation.js";
+import { parseEntity, parseEntityPatch, sanitizeSnapshot, sanitizeRow } from "../validation.js";
 import { getPlanFeatures } from "../plans.js";
 
 /** Entidades que têm limite por plano. */
@@ -108,17 +108,18 @@ function crudRouter(entity) {
     }
 
     const body = req.body || {};
+    let parsedBody;
     try {
-      parseEntity(entity, body);
+      parsedBody = parseEntity(entity, body);
     } catch (err) {
       return res.status(400).json({ error: err.errors?.[0]?.message || "Dados invalidos" });
     }
 
-    const fields = copyable[entity].filter((f) => body[f] !== undefined);
-    const id = body.id || uuid();
+    const fields = copyable[entity].filter((f) => parsedBody[f] !== undefined);
+    const id = parsedBody.id || uuid();
     // For collaborators, use the owner's user_id (ownerId vem do checkAccess)
     const doc = { _id: id, id, user_id: ownerId };
-    for (const f of fields) doc[f] = body[f];
+    for (const f of fields) doc[f] = parsedBody[f];
 
     const c = await col(entity);
     await c.insertOne(doc);
@@ -156,19 +157,21 @@ function crudRouter(entity) {
 
     if (!existing) return res.status(404).json({ error: "Registro nao encontrado" });
 
+    const changes = req.body || {};
+    let parsedBody;
     try {
-      parseEntity(entity, { id, ...req.body });
+      parsedBody = parseEntityPatch(entity, changes);
     } catch (err) {
       return res.status(400).json({ error: err.errors?.[0]?.message || "Dados invalidos" });
     }
 
-    const fields = copyable[entity].filter((f) => req.body?.[f] !== undefined);
+    const fields = copyable[entity].filter((f) => changes[f] !== undefined);
     if (fields.length === 0) {
-      return res.json(sanitizeRow(await c.findOne({ _id: id })));
+      return res.json(sanitizeRow(existing));
     }
 
     const update = {};
-    for (const f of fields) update[f] = req.body[f];
+    for (const f of fields) update[f] = parsedBody[f];
     await c.updateOne({ _id: id }, { $set: update });
 
     res.json(sanitizeRow(await c.findOne({ _id: id })));

@@ -6,14 +6,27 @@ import { PlanGate } from "../components/PlanGate";
 
 const MONTHS_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-function monthKey(d: string) {
-  const dt = new Date(d + (d.length === 10 ? "T12:00:00" : ""));
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+function monthKey(d: unknown): string | null {
+  if (typeof d !== "string") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(year, month - 1, day, 12);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 function monthLabel(key: string) {
   const [, m] = key.split("-");
   return `${MONTHS_PT[parseInt(m, 10) - 1]}`;
+}
+
+function numeric(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export default function Analytics() {
@@ -35,9 +48,9 @@ function AnalyticsContent() {
   const colheitas = useLiveQuery(() => db.colheitas.toArray(), []);
 
   const custoDe = (pid: string) =>
-    (gastos ?? []).filter((g) => g.plantio_id === pid).reduce((s, g) => s + (g.quantidade || 0) * (g.valor_unitario || 0), 0);
+    (gastos ?? []).filter((g) => g.plantio_id === pid).reduce((s, g) => s + numeric(g.quantidade) * numeric(g.valor_unitario), 0);
   const receitaDe = (pid: string) =>
-    (colheitas ?? []).filter((c) => c.plantio_id === pid).reduce((s, c) => s + (c.quantidade || 0) * (c.preco_venda || 0), 0);
+    (colheitas ?? []).filter((c) => c.plantio_id === pid).reduce((s, c) => s + numeric(c.quantidade) * numeric(c.preco_venda), 0);
 
   /* ── Cost vs Revenue per month (last 6 months) ── */
   const monthlyData = useMemo(() => {
@@ -45,13 +58,15 @@ function AnalyticsContent() {
 
     for (const g of gastos ?? []) {
       const key = monthKey(g.data);
+      if (!key) continue;
       if (!map[key]) map[key] = { custo: 0, receita: 0 };
-      map[key].custo += (g.quantidade || 0) * (g.valor_unitario || 0);
+      map[key].custo += numeric(g.quantidade) * numeric(g.valor_unitario);
     }
     for (const c of colheitas ?? []) {
       const key = monthKey(c.data);
+      if (!key) continue;
       if (!map[key]) map[key] = { custo: 0, receita: 0 };
-      map[key].receita += (c.quantidade || 0) * (c.preco_venda || 0);
+      map[key].receita += numeric(c.quantidade) * numeric(c.preco_venda);
     }
 
     const keys = Object.keys(map).sort().slice(-6);
@@ -104,11 +119,13 @@ function AnalyticsContent() {
     const map: Record<string, number> = {};
     for (const g of gastos ?? []) {
       const key = monthKey(g.data);
-      map[key] = (map[key] ?? 0) - (g.quantidade || 0) * (g.valor_unitario || 0);
+      if (!key) continue;
+      map[key] = (map[key] ?? 0) - numeric(g.quantidade) * numeric(g.valor_unitario);
     }
     for (const c of colheitas ?? []) {
       const key = monthKey(c.data);
-      map[key] = (map[key] ?? 0) + (c.quantidade || 0) * (c.preco_venda || 0);
+      if (!key) continue;
+      map[key] = (map[key] ?? 0) + numeric(c.quantidade) * numeric(c.preco_venda);
     }
     const keys = Object.keys(map).sort();
     let cumulative = 0;
@@ -119,12 +136,12 @@ function AnalyticsContent() {
   }, [gastos, colheitas]);
 
   /* ── Key metrics ── */
-  const custoTotal = (gastos ?? []).reduce((s, g) => s + (g.quantidade || 0) * (g.valor_unitario || 0), 0);
-  const receitaTotal = (colheitas ?? []).reduce((s, c) => s + (c.quantidade || 0) * (c.preco_venda || 0), 0);
+  const custoTotal = (gastos ?? []).reduce((s, g) => s + numeric(g.quantidade) * numeric(g.valor_unitario), 0);
+  const receitaTotal = (colheitas ?? []).reduce((s, c) => s + numeric(c.quantidade) * numeric(c.preco_venda), 0);
   const lucroTotal = receitaTotal - custoTotal;
   const roi = custoTotal > 0 ? ((receitaTotal - custoTotal) / custoTotal) * 100 : 0;
   const avgReceita = (plantios ?? []).length > 0 ? receitaTotal / (plantios ?? []).length : 0;
-  const totalArea = (lotes ?? []).reduce((s, l) => s + (l.area || 0), 0);
+  const totalArea = (lotes ?? []).reduce((s, l) => s + numeric(l.area), 0);
   const bestCrop = culturaRows.length > 0 ? culturaRows.reduce((best, r) => (r.lucro > best.lucro ? r : best), culturaRows[0]) : null;
 
   return (

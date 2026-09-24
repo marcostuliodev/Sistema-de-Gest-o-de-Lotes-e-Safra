@@ -7,10 +7,32 @@ import { Warning } from "../components/icons";
 const st = (p: { status: string }) =>
   ({ planejado: ["Planejado", "blue"], ativo: ["Em campo", "green"], colhido: ["Colhido", "gray"], perdido: ["Perdido", "red"] })[p.status] as any;
 
+function numeric(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function localDateTime(value?: string | null): number | null {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(year, month - 1, day, 12);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date.getTime();
+}
+
 function daysUntil(iso?: string | null) {
-  if (!iso) return null;
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5);
-  return diff;
+  const time = localDateTime(iso);
+  if (time === null) return null;
+  const target = new Date(time);
+  const today = new Date();
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return Math.round((targetDay - todayDay) / 864e5);
 }
 
 export default function Dashboard() {
@@ -20,23 +42,36 @@ export default function Dashboard() {
   const colheitas = useLiveQuery(() => db.colheitas.toArray(), []);
 
   const active = (plantios ?? []).filter((p) => p.status !== "colhido" && p.status !== "perdido");
-  const custoTotal = (gastos ?? []).reduce((s, g) => s + (g.quantidade || 0) * (g.valor_unitario || 0), 0);
-  const receitaTotal = (colheitas ?? []).reduce((s, c) => s + (c.quantidade || 0) * (c.preco_venda || 0), 0);
+  const custoTotal = (gastos ?? []).reduce((s, g) => s + numeric(g.quantidade) * numeric(g.valor_unitario), 0);
+  const receitaTotal = (colheitas ?? []).reduce((s, c) => s + numeric(c.quantidade) * numeric(c.preco_venda), 0);
   const lucro = receitaTotal - custoTotal;
 
-  const monthAgo = Date.now() - 30 * 864e5;
-  const i = (d?: string | null) => (d ? new Date(d + (d.length === 10 ? "T12:00:00" : "")).getTime() : 0);
-  const custo30 = (gastos ?? []).filter((g) => i(g.data) > monthAgo).reduce((s, g) => s + (g.quantidade || 0) * (g.valor_unitario || 0), 0);
-  const receita30 = (colheitas ?? []).filter((c) => i(c.data) > monthAgo).reduce((s, c) => s + (c.quantidade || 0) * (c.preco_venda || 0), 0);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const monthAgo = todayStart - 30 * 864e5;
+  const isAfterMonthAgo = (value?: string | null) => {
+    const time = localDateTime(value);
+    return time !== null && time > monthAgo;
+  };
+  const isUpcoming = (value?: string | null) => {
+    const time = localDateTime(value);
+    return time !== null && time >= todayStart;
+  };
+  const isOverdue = (value?: string | null) => {
+    const time = localDateTime(value);
+    return time !== null && time < todayStart;
+  };
+
+  const custo30 = (gastos ?? []).filter((g) => isAfterMonthAgo(g.data)).reduce((s, g) => s + numeric(g.quantidade) * numeric(g.valor_unitario), 0);
+  const receita30 = (colheitas ?? []).filter((c) => isAfterMonthAgo(c.data)).reduce((s, c) => s + numeric(c.quantidade) * numeric(c.preco_venda), 0);
 
   const upcoming = (plantios ?? [])
-    .filter((p) => p.status === "ativo" || p.status === "planejado")
-    .filter((p) => p.data_colheita_prevista && i(p.data_colheita_prevista) >= Date.now() - 864e5)
-    .sort((a, b) => i(a.data_colheita_prevista) - i(b.data_colheita_prevista))
+    .filter((p) => (p.status === "ativo" || p.status === "planejado") && isUpcoming(p.data_colheita_prevista))
+    .sort((a, b) => (localDateTime(a.data_colheita_prevista) ?? 0) - (localDateTime(b.data_colheita_prevista) ?? 0))
     .slice(0, 8);
   const attAntigas = (plantios ?? [])
-    .filter((p) => p.status === "ativo" && p.data_colheita_prevista && i(p.data_colheita_prevista) < Date.now())
-    .sort((a, b) => i(a.data_colheita_prevista) - i(b.data_colheita_prevista));
+    .filter((p) => p.status === "ativo" && isOverdue(p.data_colheita_prevista))
+    .sort((a, b) => (localDateTime(a.data_colheita_prevista) ?? 0) - (localDateTime(b.data_colheita_prevista) ?? 0));
 
   const loteNome = (id: string) => (lotes ?? []).find((l) => l.id === id)?.nome ?? "—";
 

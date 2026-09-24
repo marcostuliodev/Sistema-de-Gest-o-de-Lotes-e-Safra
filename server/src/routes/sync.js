@@ -76,9 +76,9 @@ async function ensureUser(user) {
 
 async function applyOp(entity, action, row, uid) {
   const c = await col(entity);
-  const id = row.id || uuid();
-  const data = { user_id: uid, id, ...row };
-  const fields = copyable[entity].filter((f) => data[f] !== undefined);
+  const schema = entitySchemas[entity];
+  const idData = schema.pick({ id: true }).parse(row);
+  const id = idData.id || uuid();
 
   if (action === "delete") {
     await c.deleteOne({ _id: id, user_id: uid });
@@ -88,15 +88,26 @@ async function applyOp(entity, action, row, uid) {
   const existing = await c.findOne({ _id: id });
   if (existing) {
     if (existing.user_id !== uid) return;
+
+    // Um patch parcial deve ser validado e persistido apenas nos campos
+    // enviados; defaults do schema não podem apagar dados já existentes.
+    const parsed = schema.partial().parse(row);
+    const fields = copyable[entity].filter((f) => row[f] !== undefined);
     const update = {};
-    for (const f of fields) update[f] = data[f];
-    await c.updateOne({ _id: id }, { $set: update });
-  } else {
-    await assertCreateWithinPlanLimit(entity, uid);
-    const doc = { _id: id, id, user_id: uid };
-    for (const f of fields) doc[f] = data[f];
-    await c.insertOne(doc);
+    for (const f of fields) update[f] = parsed[f];
+    if (fields.length > 0) {
+      await c.updateOne({ _id: id }, { $set: update });
+    }
+    return;
   }
+
+  // Uma criação exige o documento completo e grava os defaults validados.
+  await assertCreateWithinPlanLimit(entity, uid);
+  const parsed = schema.parse(row);
+  const fields = copyable[entity].filter((f) => parsed[f] !== undefined);
+  const doc = { _id: id, id, user_id: uid };
+  for (const f of fields) doc[f] = parsed[f];
+  await c.insertOne(doc);
 }
 
 async function snapshot(uid) {
@@ -149,19 +160,12 @@ router.post("/", asyncHandler(async (req, res) => {
         const action = op.action || "upsert";
         if (action !== "upsert" && action !== "delete") throw invalidOperation("Acao invalida");
 
-        if (action === "delete") {
-          if (!op.data?.id) throw invalidOperation("id obrigatorio para deletar");
-        } else {
-          const schema = entitySchemas[op.entity];
-          if (schema) {
-            const parsed = schema.safeParse(op.data || {});
-            if (!parsed.success) {
-              throw invalidOperation(parsed.error.errors[0]?.message || "Dados invalidos no sync");
-            }
-          }
+        const data = op.data || {};
+        if (action === "delete" && !data.id) {
+          throw invalidOperation("id obrigatorio para deletar");
         }
 
-        await applyOp(op.entity, action, op.data || {}, uid);
+        await applyOp(op.entity, action, data, uid);
         appliedOpIndexes.push(index);
       } catch (error) {
         failedOps.push(operationFailure(op, index, error));

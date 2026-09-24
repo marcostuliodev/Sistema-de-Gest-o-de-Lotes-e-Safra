@@ -37,20 +37,39 @@ const optionalText = z
   .max(TEXT_MAX)
   .nullish();
 
-const optionalNumber = z.number().finite().nullish();
-
 const optionalNonNeg = z
   .number()
   .finite()
   .min(0)
   .nullish();
 
-const dateStr = z
+const isCalendarDate = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?Z?)?$/.exec(value);
+  if (!match) return false;
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hours = Number(hourText || 0);
+  const minutes = Number(minuteText || 0);
+  const seconds = Number(secondText || 0);
+  if (month < 1 || month > 12 || day < 1 || hours > 23 || minutes > 59 || seconds > 59) return false;
+
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+};
+
+const requiredDateStr = z
   .string()
   .trim()
   .max(20)
   .regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?Z?)?$/, { message: "data invalida" })
-  .nullish();
+  .refine(isCalendarDate, { message: "data invalida" });
+
+const dateStr = requiredDateStr.nullish();
 
 export const lotesSchema = z.object({
   id: uuidSchema.optional(),
@@ -65,7 +84,7 @@ export const plantiosSchema = z.object({
   lote_id: uuidSchema,
   cultura: z.string().trim().min(1).max(TEXT_MAX),
   cultivar: optionalText,
-  data_plantio: dateStr,
+  data_plantio: requiredDateStr,
   data_colheita_prevista: dateStr,
   qtd_plantada: optionalNonNeg,
   unidade: z.string().trim().max(20).default("un"),
@@ -85,17 +104,17 @@ export const gastosSchema = z.object({
   insumo_id: uuidSchema.nullish(),
   descricao: optionalText,
   quantidade: openRangeOrZero(),
-  valor_unitario: optionalNumber,
-  data: dateStr,
+  valor_unitario: optionalNonNeg,
+  data: requiredDateStr,
 });
 
 export const colheitasSchema = z.object({
   id: uuidSchema.optional(),
   plantio_id: uuidSchema,
-  data: dateStr,
+  data: requiredDateStr,
   quantidade: optionalNonNeg,
   unidade: z.string().trim().max(20).default("kg"),
-  preco_venda: optionalNumber,
+  preco_venda: optionalNonNeg,
 });
 
 export const entitySchemas = {
@@ -110,6 +129,13 @@ export function parseEntity(entity, raw) {
   const schema = entitySchemas[entity];
   if (!schema) throw new Error("entidade desconhecida");
   return schema.parse(raw);
+}
+
+/** Valida somente campos enviados em uma atualização parcial. */
+export function parseEntityPatch(entity, raw) {
+  const schema = entitySchemas[entity];
+  if (!schema) throw new Error("entidade desconhecida");
+  return schema.partial().parse(raw);
 }
 
 const HTML_CHARS = /[<>"'`]/g;

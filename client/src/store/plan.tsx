@@ -56,6 +56,20 @@ const FREE_FEATURES: PlanFeatures = {
   label: "Gratuito",
 };
 
+function normalizeFeatures(raw: unknown): PlanFeatures {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    ...FREE_FEATURES,
+    ...source,
+    // JSON transforma Infinity em null; no cliente null significa ilimitado.
+    maxFotos: source.maxFotos === null
+      ? Infinity
+      : typeof source.maxFotos === "number"
+        ? source.maxFotos
+        : FREE_FEATURES.maxFotos,
+  } as PlanFeatures;
+}
+
 const Ctx = createContext<PlanCtx>(null as unknown as PlanCtx);
 
 export function PlanProvider({ children }: { children: ReactNode }) {
@@ -82,7 +96,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       const localResult = await validateStoredLicense(session.user.id);
       if (localResult.valid) {
         setPlan(localResult.plan);
-        setFeatures({ ...FREE_FEATURES, ...(localResult.features || {}) });
+        setFeatures(normalizeFeatures(localResult.features));
         setStatus("active");
       }
 
@@ -94,7 +108,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           setPlan(data.plan);
-          setFeatures({ ...FREE_FEATURES, ...(data.features || {}) });
+          setFeatures(normalizeFeatures(data.features));
           setStatus(data.status || "free");
           setTrialEnd(data.trialEnd || null);
           setCancelAtPeriodEnd(!!data.cancelAtPeriodEnd);

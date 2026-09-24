@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db/db";
 import { saveLocal, removeLocal } from "../db/sync";
 import type { EntityName } from "../db/types";
-import { Button, Card, EmptyState, Field, Form, Modal, Select, TextInput, currencyToNumber } from "./ui";
+import { Button, Card, EmptyState, Field, Form, Modal, Select, TextInput } from "./ui";
 import { Pencil, Plus, Trash } from "./icons";
 import { usePlan } from "../store/plan";
 
@@ -58,6 +58,7 @@ export function CrudPage({ config }: { config: CrudConfig }) {
   const [editing, setEditing] = useState<Record<string, any> | null>(null);
   const [values, setValues] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const allRows = rows ?? [];
@@ -115,7 +116,15 @@ export function CrudPage({ config }: { config: CrudConfig }) {
 
   async function del(row: Record<string, any>) {
     if (!confirm(`Excluir este registro? Esta ação não pode ser desfeita.`)) return;
-    await removeLocal(entity, row.id);
+    setDeletingId(row.id);
+    setError("");
+    try {
+      await removeLocal(entity, row.id);
+    } catch (err) {
+      setError((err as Error).message || "Não foi possível excluir o registro.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -132,13 +141,19 @@ export function CrudPage({ config }: { config: CrudConfig }) {
             onChange={(e) => setSearch(e.target.value)}
             className="w-full sm:w-44"
           />
-          <Button onClick={openNew}>
+          <Button onClick={openNew} disabled={rows === undefined}>
             <Plus /> {config.addLabel}
           </Button>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {error && !open && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
+
+      {rows === undefined ? (
+        <Card>
+          <p className="py-8 text-center text-sm text-stone-400">Carregando registros...</p>
+        </Card>
+      ) : filtered.length === 0 ? (
         <EmptyState
           title={config.emptyTitle}
           subtitle={config.emptySubtitle}
@@ -186,7 +201,8 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                   </Button>
                   <Button
                     variant="danger"
-                    onClick={() => del(row)}
+                    onClick={() => void del(row)}
+                    disabled={deletingId === row.id}
                     title="Excluir"
                     className="min-h-11 px-3"
                   >
@@ -229,7 +245,13 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                         <Button variant="ghost" onClick={() => openEdit(row)} title="Editar" className="p-2.5 sm:p-2">
                           <Pencil />
                         </Button>
-                        <Button variant="danger" onClick={() => del(row)} title="Excluir" className="p-2.5 sm:p-2">
+                        <Button
+                          variant="danger"
+                          onClick={() => void del(row)}
+                          disabled={deletingId === row.id}
+                          title="Excluir"
+                          className="p-2.5 sm:p-2"
+                        >
                           <Trash />
                         </Button>
                       </div>
@@ -271,13 +293,14 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                     <TextInput
                       type={f.type === "number" ? "number" : "text"}
                       step={f.step}
+                      min={f.type === "number" ? 0 : undefined}
                       placeholder={f.placeholder}
                       required={f.required}
                       value={values[f.name] ?? ""}
                       onChange={(e) =>
                         setValues((v) => ({
                           ...v,
-                            [f.name]: f.type === "number" ? e.target.value : currencyToNumber(e.target.value),
+                          [f.name]: e.target.value,
                         }))
                       }
                     />

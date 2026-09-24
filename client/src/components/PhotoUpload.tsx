@@ -44,7 +44,7 @@ export function PhotoUpload({
       const data = await getPlantioPhotos(plantioId);
       setPhotos(data);
     } catch {
-      // silent
+      setError("Não foi possível carregar as fotos. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -118,8 +118,9 @@ export function PhotoUpload({
     try {
       await deletePhoto(id);
       setPhotos((prev) => prev.filter((p) => p._id !== id));
+      setError("");
     } catch {
-      // silent
+      setError("Não foi possível excluir a foto. Tente novamente.");
     } finally {
       setDeleting(null);
     }

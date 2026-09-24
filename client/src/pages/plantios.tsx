@@ -20,7 +20,7 @@ export default function Plantios() {
 
   const [photoModal, setPhotoModal] = useState<{ plantioId: string; loteId: string } | null>(null);
   const { features } = usePlan();
-  const maxFotos = (features as any).maxFotos ?? 0;
+  const maxFotos = features.maxFotos;
 
   const loteOptions = [
     { value: "__placeholder", label: "Selecione o lote..." },
