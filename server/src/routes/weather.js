@@ -7,6 +7,15 @@ import { geocode, fetchWeather } from "../weather.js";
 const router = Router();
 router.use(authMiddleware);
 
+async function findWeatherUser(usersCol, user) {
+  const or = [];
+  if (user?.uid !== undefined && user?.uid !== null) {
+    or.push({ _id: user.uid }, { id: user.uid });
+  }
+  if (user?.email) or.push({ email: user.email });
+  return or.length > 0 ? usersCol.findOne({ $or: or }) : null;
+}
+
 router.get(
   "/geocode",
   asyncHandler(async (req, res) => {
@@ -20,7 +29,7 @@ router.get(
   asyncHandler(async (req, res) => {
     try {
       const usersCol = await col("users");
-      const row = await usersCol.findOne({ _id: req.user.uid });
+      const row = await findWeatherUser(usersCol, req.user);
       if (!row || row.lat == null || row.lon == null) {
         res.json({ location: null });
         return;
@@ -47,10 +56,15 @@ router.post(
     const safeCity = String(city || "").slice(0, 200);
     const safeTz = String(tz || "auto").slice(0, 64);
     const usersCol = await col("users");
-    await usersCol.updateOne(
-      { _id: req.user.uid },
+    const userRow = await findWeatherUser(usersCol, req.user);
+    if (!userRow) return res.status(404).json({ error: "Conta não encontrada" });
+    const result = await usersCol.updateOne(
+      { _id: userRow._id },
       { $set: { lat: la, lon: lo, city: safeCity, tz: safeTz } }
     );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Não foi possível salvar a localização" });
+    }
     res.json({ ok: true, location: { lat: la, lon: lo, city: safeCity, tz: safeTz } });
   })
 );
@@ -60,7 +74,7 @@ router.get(
   asyncHandler(async (req, res) => {
     try {
       const usersCol = await col("users");
-      const row = await usersCol.findOne({ _id: req.user.uid });
+      const row = await findWeatherUser(usersCol, req.user);
       if (!row || row.lat == null || row.lon == null) {
         return res.status(400).json({ error: "Localização não configurada" });
       }

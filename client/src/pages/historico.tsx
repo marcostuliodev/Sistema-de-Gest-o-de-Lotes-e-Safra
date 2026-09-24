@@ -104,7 +104,7 @@ export default function Historico() {
                     <p className="text-sm text-stone-600">{a.body}</p>
                     {a.sent_at && (
                       <p className="mt-0.5 text-xs text-stone-400">
-                        {fmtDay(a.sent_at.slice(0, 10))} às {fmtHour(a.sent_at.slice(0, 16))}
+                         {fmtDay(a.sent_at)} às {fmtHour(a.sent_at)}
                       </p>
                     )}
                   </div>

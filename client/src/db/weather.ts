@@ -21,6 +21,7 @@ export interface WeatherHour {
   rain: number;
   weather_code: number;
   wind_speed_10m: number;
+  wind_direction_10m: number | null;
   wind_gusts_10m: number;
   uv_index: number;
   is_day: number;
@@ -75,6 +76,7 @@ export interface WeatherResponse {
   weather: {
     location: { latitude: number; longitude: number; timezone: string; timezone_abbreviation: string; utc_offset_seconds: number };
     current: WeatherCurrent;
+    retrieved_at?: string;
     hourly: WeatherHour[];
     daily: WeatherDay[];
     alerts: WeatherAlert[];
@@ -160,49 +162,32 @@ export function describeWeatherCode(code: number): { label: string; icon: string
 
 const DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"];
 
-export function windDir(deg?: number): string {
-  if (deg == null || Number.isNaN(deg)) return "—";
-  return DIRS[Math.round(deg / 22.5) % 16];
+export function windDir(deg?: number | null): string {
+  if (deg == null || !Number.isFinite(Number(deg))) return "—";
+  const normalized = ((Number(deg) % 360) + 360) % 360;
+  return DIRS[Math.round(normalized / 22.5) % 16];
 }
 
-// Converte um horário recebido (em horário local da propriedade, com o offset
-// informado) para o fuso horário do dispositivo do usuário.
-export function fmtHour(time: string, offsetSeconds?: number): string {
+// A Open-Meteo retorna horários locais sem offset quando timezone=...;
+// nesse caso o horário já está no fuso da propriedade e deve ser exibido
+// diretamente. Timestamps absolutos são convertidos para o fuso do aparelho.
+export function fmtHour(time: string, _offsetSeconds?: number): string {
   if (!time) return "";
-  // Timestamp absoluto (com Z ou offset) -> já formata no fuso do dispositivo.
   if (/[Zz]$|\+\d{2}:\d{2}$|-\d{2}:\d{2}$/.test(time)) {
     const d = new Date(time);
-    if (!isNaN(d.getTime())) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (!Number.isNaN(d.getTime())) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   }
-  // Horário de parede da propriedade -> converte para o fuso do dispositivo.
-  if (offsetSeconds != null) {
-    const asUTC = new Date(time.length === 16 ? time + ":00Z" : time + "Z");
-    if (!isNaN(asUTC.getTime())) {
-      return new Date(asUTC.getTime() - offsetSeconds * 1000).toLocaleTimeString("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
-  }
-  return time.slice(11, 16);
+  return time.includes("T") ? time.slice(11, 16) : time.slice(0, 5);
 }
 
-export function fmtDay(date: string, offsetSeconds?: number): string {
-  // Timestamp absoluto -> fuso do dispositivo.
+export function fmtDay(date: string, _offsetSeconds?: number): string {
+  if (!date) return "";
   if (/[Zz]$|\+\d{2}:\d{2}$|-\d{2}:\d{2}$/.test(date)) {
     const d = new Date(date);
-    if (!isNaN(d.getTime())) return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
   }
-  if (offsetSeconds != null) {
-    const asUTC = new Date(date.length >= 11 && date[10] === "T" ? date : date + "T00:00:00Z");
-    if (!isNaN(asUTC.getTime())) {
-      return new Date(asUTC.getTime() - offsetSeconds * 1000).toLocaleDateString("pt-BR", {
-        weekday: "short",
-        day: "2-digit",
-        month: "2-digit",
-      });
-    }
-  }
-  const d = new Date(date + "T00:00:00");
-  return isNaN(d.getTime()) ? date : d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
+  const localDate = new Date(`${date}T12:00:00`);
+  return Number.isNaN(localDate.getTime())
+    ? date.slice(0, 10)
+    : localDate.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" });
 }

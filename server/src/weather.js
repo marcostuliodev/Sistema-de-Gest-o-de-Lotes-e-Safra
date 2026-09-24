@@ -18,6 +18,7 @@ const CURRENT_VARS = [
   "wind_speed_10m",
   "wind_direction_10m",
   "wind_gusts_10m",
+  "uv_index",
 ];
 
 const HOURLY_VARS = [
@@ -29,6 +30,7 @@ const HOURLY_VARS = [
   "rain",
   "weather_code",
   "wind_speed_10m",
+  "wind_direction_10m",
   "wind_gusts_10m",
   "uv_index",
   "is_day",
@@ -94,7 +96,7 @@ export async function geocode(query) {
 }
 
 export async function fetchWeather(lat, lon, tz = "auto") {
-  const key = `${lat},${lon}`;
+  const key = `${lat},${lon},${tz}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < CACHE_TTL) return hit.v;
 
@@ -115,7 +117,7 @@ export async function fetchWeather(lat, lon, tz = "auto") {
     const current = { ...data.current };
     const hourly = data.hourly.time.map((time, i) => {
       const o = { time };
-      for (const k of HOURLY_VARS) o[k] = data.hourly[k][i];
+      for (const k of HOURLY_VARS) o[k] = data.hourly[k]?.[i] ?? null;
       return o;
     });
     const daily = data.daily.time.map((date, i) => {
@@ -124,19 +126,21 @@ export async function fetchWeather(lat, lon, tz = "auto") {
       return o;
     });
 
-    // UV "agora": usa o bucket da hora corrente (último hourly cujo horário é
-    // <= o horário atual). O current.time raramente bate exato com um topo de
-    // hora, então evitamos a comparação de igualdade que sempre falhava.
-    let curIdx = hourly.length - 1;
-    for (let i = 0; i < hourly.length; i++) {
-      if (hourly[i].time > data.current.time) {
-        curIdx = i - 1;
-        break;
+    // UV atual é o valor de current (15 min). hourly é apenas fallback para
+    // provedores que não devolvem esse campo.
+    if (current.uv_index == null) {
+      let curIdx = hourly.length - 1;
+      for (let i = 0; i < hourly.length; i++) {
+        if (hourly[i].time > data.current.time) {
+          curIdx = i - 1;
+          break;
+        }
       }
+      current.uv_index = curIdx >= 0 ? hourly[curIdx].uv_index : (hourly[0]?.uv_index ?? null);
     }
-    current.uv_index = curIdx >= 0 ? hourly[curIdx].uv_index : (hourly[0]?.uv_index ?? null);
 
     const result = {
+      retrieved_at: new Date().toISOString(),
       location: {
         latitude: lat,
         longitude: lon,
@@ -265,19 +269,34 @@ export function evaluateAlerts(weather) {
   }
 
   // Sol extremo (UV)
-  if (today.uv_index_max >= 11) {
+  const currentUv = Number(weather.current?.uv_index);
+  if (currentUv >= 11) {
     alerts.push({
       type: "uv",
       severity: "high",
-      title: `Sol extremo (UV ${today.uv_index_max})`,
-      body: "Índice UV extremo. Use sombreamento para mudas e proteção adequada.",
+      title: `UV extremo agora (${currentUv.toFixed(1)})`,
+      body: "Índice UV extremo neste momento. Use sombreamento para mudas e proteção adequada.",
+    });
+  } else if (currentUv >= 8) {
+    alerts.push({
+      type: "uv",
+      severity: "medium",
+      title: `UV muito alto agora (${currentUv.toFixed(1)})`,
+      body: "Sol forte neste momento. Sombreamento recomendado para cultivos sensíveis.",
+    });
+  } else if (today.uv_index_max >= 11) {
+    alerts.push({
+      type: "uv",
+      severity: "medium",
+      title: `UV máximo hoje: ${today.uv_index_max.toFixed(1)}`,
+      body: "O índice UV máximo previsto para hoje é extremo. Evite exposição no período de maior intensidade.",
     });
   } else if (today.uv_index_max >= 8) {
     alerts.push({
       type: "uv",
-      severity: "medium",
-      title: `UV muito alto (${today.uv_index_max})`,
-      body: "Sol forte. Sombreamento recomendado para cultivos sensíveis.",
+      severity: "low",
+      title: `UV máximo hoje: ${today.uv_index_max.toFixed(1)}`,
+      body: "O índice UV máximo previsto para hoje é muito alto. Prefira horários com menor insolação.",
     });
   }
 

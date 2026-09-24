@@ -34,9 +34,16 @@ export interface CrudConfig {
   emptySubtitle: string;
 }
 
+function localDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function defaultValueFor(field: FieldDef) {
   if (field.type === "number") return "";
-  if (field.type === "date") return new Date().toISOString().slice(0, 10);
+  if (field.type === "date") return localDateString();
   if (field.type === "select" && field.multiple) return null;
   if (field.type === "select" && field.options?.length) return field.options[0].value;
   return "";
@@ -270,7 +277,7 @@ export function CrudPage({ config }: { config: CrudConfig }) {
                       onChange={(e) =>
                         setValues((v) => ({
                           ...v,
-                          [f.name]: f.type === "number" ? currencyToNumber(e.target.value) : e.target.value,
+                            [f.name]: f.type === "number" ? e.target.value : currencyToNumber(e.target.value),
                         }))
                       }
                     />

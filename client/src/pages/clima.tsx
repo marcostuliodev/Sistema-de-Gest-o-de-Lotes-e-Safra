@@ -65,6 +65,8 @@ function ClimaContent() {
   const [geoQuery, setGeoQuery] = useState("");
   const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
   const [geoBusy, setGeoBusy] = useState(false);
+  const [geoMessage, setGeoMessage] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [pushSupported] = useState(isPushSupported());
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
@@ -72,25 +74,29 @@ function ClimaContent() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMsg, setPushMsg] = useState<string | null>(null);
 
-useEffect(() => {
+  useEffect(() => {
     (async () => {
       try {
-        const l = await getLocation();
-        if (l) {
-          setLoc(l);
-          loadWeather();
-          loadHistory();
-        } else {
-          // Não tem localização salva nem cache — oferece usar geolocalização
-          setError(
-            "Localização não configurada. Clique em 'Usar minha localização atual' para ativar ou defina a cidade nas configurações."
-          );
-          // Tenta geolocalização automática se o navegador permitir
-          if (!!navigator.geolocation) {
-            setError(
-              "Permitir geolocalização para detectar sua posição automaticamente."
-            );
+        // O cache local primeiro permite abrir o clima mesmo sem rede.
+        const cached = await getCachedWeather();
+        if (cached) {
+          setWeather(cached.weather);
+          setLoc(cached.location as Loc);
+        }
+
+        if (navigator.onLine) {
+          const l = await getLocation();
+          if (l) {
+            setLoc(l);
+            await loadWeather();
+            await loadHistory();
+          } else if (!cached) {
+            setError("Localização não configurada. Busque a cidade da propriedade abaixo.");
           }
+        } else if (!cached) {
+          setError("Sem conexão e sem dados climáticos salvos neste aparelho.");
+        } else {
+          setError("Você está offline. Exibindo o último clima salvo; conecte para atualizar.");
         }
       } catch (e: any) {
         setError(e.message || "Erro ao carregar clima");
@@ -106,6 +112,7 @@ useEffect(() => {
   }, []);
 
   async function loadWeather() {
+    setRefreshing(true);
     try {
       const resp = await fetchWeather();
       setWeather(resp.weather);
@@ -114,11 +121,13 @@ useEffect(() => {
       setError(null);
     } catch (e: any) {
       const cached = await getCachedWeather();
-      if (cached) {
+      if (cached && !loc) {
         setWeather(cached.weather);
         setLoc(cached.location as Loc);
       }
-      setError(e.message || "Erro ao buscar clima. Verifique sua conexão.");
+      setError(navigator.onLine ? (e.message || "Erro ao buscar clima.") : "Você está offline. Exibindo o último clima salvo.");
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -131,13 +140,20 @@ useEffect(() => {
   }
 
   async function doGeocode() {
-    if (geoQuery.trim().length < 2) return;
+    const query = geoQuery.trim();
+    if (query.length < 2) {
+      setGeoMessage("Digite pelo menos 2 letras.");
+      return;
+    }
     setGeoBusy(true);
+    setGeoMessage(null);
     try {
-      const res = await (await import("../db/weather")).geocode(geoQuery.trim());
+      const res = await (await import("../db/weather")).geocode(query);
       setGeoResults(res);
-    } catch {
+      setGeoMessage(res.length === 0 ? "Nenhuma cidade encontrada. Tente incluir o estado, por exemplo: Cascavel, PR." : null);
+    } catch (e: any) {
       setGeoResults([]);
+      setGeoMessage(e.message || "Não foi possível buscar a cidade.");
     } finally {
       setGeoBusy(false);
     }
@@ -145,31 +161,51 @@ useEffect(() => {
 
   async function selectGeo(g: GeoResult) {
     setGeoResults([]);
+    setGeoMessage(null);
     setGeoQuery("");
     await applyLocation({ lat: g.latitude, lon: g.longitude, city: g.label, tz: g.timezone });
   }
 
   function useMyLocation() {
-    if (!navigator.geolocation) {
-      setError("Geolocalização não disponível neste dispositivo");
+    if (!("geolocation" in navigator)) {
+      setError("Geolocalização não disponível neste dispositivo.");
       return;
     }
+    if (!window.isSecureContext) {
+      setError("A localização do navegador exige HTTPS. Use a busca por cidade.");
+      return;
+    }
+    setGeoMessage("Solicitando sua localização...");
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "auto";
-        await applyLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude, city: "Minha localização", tz });
+        await applyLocation({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          city: "Minha localização",
+          tz,
+        });
       },
-      () => setError("Não foi possível obter sua localização")
+      (geoError) => {
+        const message = geoError.code === 1
+          ? "Permissão de localização negada. Use a busca por cidade."
+          : geoError.code === 3
+            ? "A localização demorou. Tente novamente ou use a busca por cidade."
+            : "Não foi possível obter sua localização. Use a busca por cidade.";
+        setGeoMessage(message);
+      },
+      { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 }
     );
   }
 
   async function applyLocation(l: Loc) {
+    setGeoMessage(null);
     try {
       await saveLocation(l);
       setLoc(l);
       setLoading(true);
       await loadWeather();
-      loadHistory();
+      await loadHistory();
     } catch (e: any) {
       setError(e.message || "Erro ao salvar localização");
     } finally {
@@ -236,7 +272,7 @@ useEffect(() => {
               <TextInput
                 value={geoQuery}
                 onChange={(e) => setGeoQuery(e.target.value)}
-                placeholder="Ex.: Cascavel, GO"
+                placeholder="Ex.: Cascavel, PR"
                 onKeyDown={(e) => e.key === "Enter" && doGeocode()}
                 className="flex-1 min-w-0"
               />
@@ -245,8 +281,9 @@ useEffect(() => {
               </Button>
             </div>
           </Field>
+          {geoMessage && <p className="mt-2 text-sm text-amber-700" role="status">{geoMessage}</p>}
           {geoResults.length > 0 && (
-            <ul className="mt-3 divide-y divide-stone-100">
+            <ul className="mt-3 divide-y divide-stone-100" aria-label="Cidades encontradas">
               {geoResults.map((g) => (
                 <li key={`${g.latitude},${g.longitude}`}>
                   <button
@@ -266,7 +303,7 @@ useEffect(() => {
             </Button>
           </div>
         </Card>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
       </div>
     );
   }
@@ -275,16 +312,19 @@ useEffect(() => {
   const today = weather?.daily?.[0];
   const code = cur ? describeWeatherCode(cur.weather_code) : null;
   const tzOffset = weather?.location.utc_offset_seconds ?? 0;
+  const upcomingHours = weather?.hourly
+    ? weather.hourly.filter((hour) => !cur?.time || hour.time >= cur.time).slice(0, 24)
+    : [];
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-stone-800">Clima & Alertas</h1>
-          <p className="text-sm text-stone-500">{loc.city || "Sua propriedade"}</p>
+          <p className="break-words text-sm text-stone-500">{loc.city || "Sua propriedade"}</p>
         </div>
-        <Button variant="ghost" onClick={loadWeather}>
-          ↻ Atualizar
+        <Button variant="ghost" onClick={() => void loadWeather()} disabled={refreshing}>
+          {refreshing ? "Atualizando…" : "Atualizar"}
         </Button>
       </div>
 
@@ -293,38 +333,44 @@ useEffect(() => {
       {/* Atual */}
       {cur && code && (
         <Card className="bg-gradient-to-br from-green-50 to-emerald-50">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-sm font-medium text-stone-500">{code.label}</p>
               <p className="text-5xl font-extrabold text-stone-800">
-                {cur.temperature_2m.toFixed(0)}°C
+                {formatNumber(cur.temperature_2m)}°C
               </p>
-              <p className="text-sm text-stone-500">Sensação {cur.apparent_temperature.toFixed(0)}°C</p>
+               <p className="text-sm text-stone-500">Sensação {formatNumber(cur.apparent_temperature)}°C</p>
             </div>
             <div className="text-5xl sm:text-7xl">{code.icon}</div>
           </div>
         </Card>
       )}
+      {weather?.retrieved_at && (
+        <p className="-mt-3 text-xs text-stone-400">
+          Fonte: Open-Meteo · consulta em {new Date(weather.retrieved_at).toLocaleString("pt-BR")}
+        </p>
+      )}
 
       {/* Detalhes */}
       {cur && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          <Detail label="Umidade" value={`${cur.relative_humidity_2m}%`} />
-          <Detail label="Vento" value={`${cur.wind_speed_10m.toFixed(0)} km/h ${windDir(cur.wind_direction_10m)}`} />
-          <Detail label="Rajadas" value={`${cur.wind_gusts_10m.toFixed(0)} km/h`} />
-          <Detail label="Pressão" value={`${cur.pressure_msl.toFixed(0)} hPa`} />
-          <Detail label="Nebulosidade" value={`${cur.cloud_cover}%`} />
-          <Detail label="UV" value={`${cur.uv_index ?? "—"}`} />
-          <Detail label="Chuva agora" value={`${cur.precipitation.toFixed(1)} mm`} />
+          <Detail label="Umidade" value={`${formatNumber(cur.relative_humidity_2m)}%`} />
+          <Detail label="Vento agora" value={`${formatNumber(cur.wind_speed_10m)} km/h ${windDir(cur.wind_direction_10m)}`} />
+          <Detail label="Rajada da hora" value={`${formatNumber(cur.wind_gusts_10m)} km/h`} />
+          <Detail label="Pressão" value={`${formatNumber(cur.pressure_msl)} hPa`} />
+          <Detail label="Nebulosidade" value={`${formatNumber(cur.cloud_cover)}%`} />
+          <Detail label="UV agora" value={formatNumber(cur.uv_index, 1)} />
+          <Detail label="UV máximo hoje" value={formatNumber(today?.uv_index_max, 1)} />
+          <Detail label="Chuva agora" value={`${formatNumber(cur.precipitation, 1)} mm`} />
           <Detail label="Sol" value={`↑${fmtHour(today?.sunrise || "", tzOffset)} ↓${fmtHour(today?.sunset || "", tzOffset)}`} />
         </div>
       )}
 
       {/* Gráfico de temperatura/UV (24h) */}
-      {weather && weather.hourly.length > 0 && (
+      {upcomingHours.length > 0 && (
         <Card>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-bold text-stone-800">Temperatura e UV — 24h</h2>
+            <h2 className="font-bold text-stone-800">Temperatura e UV — próximas 24h</h2>
             <div className="flex items-center gap-3 text-xs text-stone-500">
               <span className="flex items-center gap-1">
                 <span className="inline-block h-2 w-3 rounded-full bg-green-600" /> Temp
@@ -334,7 +380,7 @@ useEffect(() => {
               </span>
             </div>
           </div>
-          <WeatherChart hourly={weather.hourly} offset={tzOffset} />
+          <WeatherChart hourly={upcomingHours} offset={tzOffset} />
         </Card>
       )}
 
@@ -400,20 +446,22 @@ useEffect(() => {
       </Card>
 
       {/* Previsão por hora */}
-      {weather && weather.hourly.length > 0 && (
+      {upcomingHours.length > 0 && (
         <Card>
           <h2 className="mb-3 font-bold text-stone-800">Próximas horas</h2>
           <div className="flex gap-3 overflow-x-auto pb-2">
-            {weather.hourly.slice(0, 24).map((h) => {
+            {upcomingHours.map((h) => {
               const c = describeWeatherCode(h.weather_code);
               return (
                 <div key={h.time} className="min-w-[64px] rounded-xl border border-stone-100 p-2 text-center">
                   <p className="text-xs text-stone-400">{fmtHour(h.time, tzOffset)}</p>
                   <p className="text-2xl">{c.icon}</p>
-                  <p className="text-sm font-semibold text-stone-800">{h.temperature_2m.toFixed(0)}°</p>
-                  {h.precipitation_probability != null && h.precipitation_probability > 0 && (
-                    <p className="text-[10px] text-blue-600">{h.precipitation_probability}%</p>
-                  )}
+                   <p className="text-sm font-semibold text-stone-800">{formatNumber(h.temperature_2m)}°</p>
+                   {h.precipitation_probability != null && h.precipitation_probability > 0 && (
+                     <p className="text-[10px] text-blue-600">Chuva {h.precipitation_probability}%</p>
+                   )}
+                   <p className="text-[10px] text-stone-500">{formatNumber(h.wind_speed_10m)} km/h {windDir(h.wind_direction_10m)}</p>
+                   {h.uv_index != null && <p className="text-[10px] text-amber-700">UV {formatNumber(h.uv_index, 1)}</p>}
                 </div>
               );
             })}
@@ -438,10 +486,10 @@ useEffect(() => {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="text-stone-400">{d.temperature_2m_min.toFixed(0)}°</span>
-                    <span className="font-semibold text-stone-800">{d.temperature_2m_max.toFixed(0)}°</span>
-                    <span className="hidden text-blue-600 sm:inline">{d.precipitation_sum.toFixed(0)}mm</span>
-                    <span className="hidden text-amber-600 sm:inline">UV {d.uv_index_max}</span>
+                     <span className="text-stone-400">{formatNumber(d.temperature_2m_min)}°</span>
+                     <span className="font-semibold text-stone-800">{formatNumber(d.temperature_2m_max)}°</span>
+                     <span className="text-xs text-blue-600">{formatNumber(d.precipitation_sum, 1)}mm</span>
+                     <span className="text-xs text-amber-700">UV {formatNumber(d.uv_index_max, 1)}</span>
                   </div>
                 </li>
               );
@@ -474,17 +522,22 @@ useEffect(() => {
   );
 }
 
+function formatNumber(value: unknown, digits = 0): string {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(digits) : "—";
+}
+
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">
+    <div className="min-w-0 rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-semibold text-stone-800 tabular-nums" title={value}>{value}</p>
+      <p className="mt-0.5 break-words text-sm font-semibold text-stone-800 tabular-nums">{value}</p>
     </div>
   );
 }
 
 function WeatherChart({ hourly, offset }: { hourly: WeatherResponse["weather"]["hourly"]; offset: number }) {
-  const data = hourly.slice(0, 24);
+  const data = hourly.filter((h) => Number.isFinite(Number(h.temperature_2m))).slice(0, 24);
   if (data.length < 2) return null;
   const W = 320;
   const H = 150;
