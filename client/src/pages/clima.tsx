@@ -43,6 +43,12 @@ const SEV_TONE: Record<string, "blue" | "amber" | "red" | "gray"> = {
   high: "red",
 };
 
+const SEV_LABEL: Record<string, string> = {
+  low: "Baixo",
+  medium: "Médio",
+  high: "Alto",
+};
+
 export default function Clima() {
   return (
     <PlanGate
@@ -268,18 +274,18 @@ function ClimaContent() {
         </div>
         <Card>
           <Field label="Buscar cidade" hint="Digite o nome da cidade/localidade da propriedade.">
-            <div className="flex gap-2">
-              <TextInput
-                value={geoQuery}
-                onChange={(e) => setGeoQuery(e.target.value)}
-                placeholder="Ex.: Cascavel, PR"
-                onKeyDown={(e) => e.key === "Enter" && doGeocode()}
-                className="flex-1 min-w-0"
-              />
-              <Button onClick={doGeocode} disabled={geoBusy}>
-                {geoBusy ? "Buscando…" : "Buscar"}
-              </Button>
-            </div>
+             <div className="flex flex-col gap-2 sm:flex-row">
+               <TextInput
+                 value={geoQuery}
+                 onChange={(e) => setGeoQuery(e.target.value)}
+                 placeholder="Ex.: Cascavel, PR"
+                 onKeyDown={(e) => e.key === "Enter" && doGeocode()}
+                 className="w-full min-w-0 flex-1"
+               />
+               <Button onClick={doGeocode} disabled={geoBusy} className="w-full sm:w-auto">
+                 {geoBusy ? "Buscando…" : "Buscar"}
+               </Button>
+             </div>
           </Field>
           {geoMessage && <p className="mt-2 text-sm text-amber-700" role="status">{geoMessage}</p>}
           {geoResults.length > 0 && (
@@ -290,7 +296,7 @@ function ClimaContent() {
                     onClick={() => selectGeo(g)}
                     className="flex w-full items-center justify-between py-2.5 text-left hover:text-green-700"
                   >
-                    <span className="min-w-0 truncate font-medium text-stone-800">{g.label}</span>
+                     <span className="min-w-0 break-words font-medium text-stone-800">{g.label}</span>
                     <span className="text-xs text-stone-400">{g.timezone}</span>
                   </button>
                 </li>
@@ -298,9 +304,9 @@ function ClimaContent() {
             </ul>
           )}
           <div className="mt-4 border-t border-stone-100 pt-4">
-            <Button variant="subtle" onClick={useMyLocation}>
-              📍 Usar minha localização atual
-            </Button>
+             <Button variant="subtle" onClick={useMyLocation} className="w-full">
+               📍 Usar minha localização atual
+             </Button>
           </div>
         </Card>
         {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
@@ -318,30 +324,30 @@ function ClimaContent() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-stone-800">Clima & Alertas</h1>
           <p className="break-words text-sm text-stone-500">{loc.city || "Sua propriedade"}</p>
         </div>
-        <Button variant="ghost" onClick={() => void loadWeather()} disabled={refreshing}>
+        <Button variant="ghost" onClick={() => void loadWeather()} disabled={refreshing} className="w-full sm:w-auto">
           {refreshing ? "Atualizando…" : "Atualizar"}
         </Button>
       </div>
 
-      {error && <p className="text-sm text-amber-600">{error}</p>}
+      {error && <p className="text-sm text-amber-600" role="alert">{error}</p>}
 
       {/* Atual */}
       {cur && code && (
-        <Card className="bg-gradient-to-br from-green-50 to-emerald-50">
+        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 sm:p-5">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-stone-500">{code.label}</p>
-              <p className="text-5xl font-extrabold text-stone-800">
+              <p className="mt-1 text-5xl font-extrabold text-stone-800 sm:text-6xl">
                 {formatNumber(cur.temperature_2m)}°C
               </p>
-               <p className="text-sm text-stone-500">Sensação {formatNumber(cur.apparent_temperature)}°C</p>
+              <p className="mt-1 text-sm text-stone-500">Sensação {formatNumber(cur.apparent_temperature)}°C</p>
             </div>
-            <div className="text-5xl sm:text-7xl">{code.icon}</div>
+            <div className="shrink-0 text-5xl sm:text-7xl" aria-hidden="true">{code.icon}</div>
           </div>
         </Card>
       )}
@@ -394,8 +400,8 @@ function ClimaContent() {
                 <span className="text-xl">{ALERT_ICON[a.type] || "⚠️"}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-0 truncate font-semibold text-stone-800">{a.title}</span>
-                    <Badge tone={SEV_TONE[a.severity]}>{a.severity}</Badge>
+                     <span className="min-w-0 break-words font-semibold text-stone-800">{a.title}</span>
+                    <Badge tone={SEV_TONE[a.severity] || "gray"}>{SEV_LABEL[a.severity] || a.severity}</Badge>
                   </div>
                   <p className="break-words text-sm text-stone-600">{a.body}</p>
                 </div>
@@ -426,15 +432,15 @@ function ClimaContent() {
             </p>
             <div className="flex flex-wrap gap-2">
               {!pushSubscribed ? (
-                <Button onClick={enablePush} disabled={pushBusy}>
+                <Button onClick={enablePush} disabled={pushBusy} className="w-full sm:w-auto">
                   {pushBusy ? "Ativando…" : "Ativar notificações"}
                 </Button>
               ) : (
                 <>
-                  <Button variant="subtle" onClick={testPush} disabled={pushBusy}>
+                  <Button variant="subtle" onClick={testPush} disabled={pushBusy} className="w-full sm:w-auto">
                     Enviar teste
                   </Button>
-                  <Button variant="danger" onClick={disablePush} disabled={pushBusy}>
+                  <Button variant="danger" onClick={disablePush} disabled={pushBusy} className="w-full sm:w-auto">
                     Desativar
                   </Button>
                 </>
@@ -453,7 +459,7 @@ function ClimaContent() {
             {upcomingHours.map((h) => {
               const c = describeWeatherCode(h.weather_code);
               return (
-                <div key={h.time} className="min-w-[64px] rounded-xl border border-stone-100 p-2 text-center">
+                 <div key={h.time} className="min-w-[78px] rounded-xl border border-stone-100 p-2 text-center">
                   <p className="text-xs text-stone-400">{fmtHour(h.time, tzOffset)}</p>
                   <p className="text-2xl">{c.icon}</p>
                    <p className="text-sm font-semibold text-stone-800">{formatNumber(h.temperature_2m)}°</p>
@@ -477,15 +483,15 @@ function ClimaContent() {
             {weather.daily.map((d) => {
               const c = describeWeatherCode(d.weather_code);
               return (
-                <li key={d.date} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                 <li key={d.date} className="grid grid-cols-1 gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="text-2xl">{c.icon}</span>
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
-                      <p className="truncate text-xs text-stone-400">{c.label}</p>
+                       <p className="break-words font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
+                       <p className="break-words text-xs text-stone-400">{c.label}</p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                   <div className="flex flex-wrap items-center gap-3 text-sm sm:justify-end">
                      <span className="text-stone-400">{formatNumber(d.temperature_2m_min)}°</span>
                      <span className="font-semibold text-stone-800">{formatNumber(d.temperature_2m_max)}°</span>
                      <span className="text-xs text-blue-600">{formatNumber(d.precipitation_sum, 1)}mm</span>
@@ -511,7 +517,7 @@ function ClimaContent() {
             {history.slice(0, 5).map((a, i) => (
               <li key={i} className="flex flex-wrap items-center gap-2">
                 <span>{ALERT_ICON[a.type] || "⚠️"}</span>
-                <span className="min-w-0 flex-1 truncate font-medium text-stone-700">{a.title}</span>
+                 <span className="min-w-0 flex-1 break-words font-medium text-stone-700">{a.title}</span>
                 <span className="text-xs text-stone-400">{a.sent_at?.slice(0, 16)}</span>
               </li>
             ))}
@@ -539,8 +545,8 @@ function Detail({ label, value }: { label: string; value: string }) {
 function WeatherChart({ hourly, offset }: { hourly: WeatherResponse["weather"]["hourly"]; offset: number }) {
   const data = hourly.filter((h) => Number.isFinite(Number(h.temperature_2m))).slice(0, 24);
   if (data.length < 2) return null;
-  const W = 320;
-  const H = 150;
+  const W = 360;
+  const H = 180;
   const padX = 10;
   const padY = 16;
   const temps = data.map((h) => h.temperature_2m);
@@ -559,7 +565,7 @@ function WeatherChart({ hourly, offset }: { hourly: WeatherResponse["weather"]["
   const labelIdx = [0, 6, 12, 18].filter((i) => i < data.length);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-40 w-full" preserveAspectRatio="none" role="img" aria-label="Gráfico de temperatura e UV">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-44 w-full" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Gráfico de temperatura e índice UV nas próximas 24 horas">
       <defs>
         <linearGradient id="tempFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#16a34a" stopOpacity="0.25" />
