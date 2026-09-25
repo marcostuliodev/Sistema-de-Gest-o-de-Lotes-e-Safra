@@ -14,6 +14,7 @@ import { validateStoredLicense, setStoredLicense } from "../lib/license";
 import { initClockGuard, sendHeartbeat } from "../lib/clock-guard";
 import { runIntegrityCheck, startIntegrityMonitoring } from "../lib/integrity";
 import { getMyAccess } from "../db/collaborators";
+import { useProject } from "./project";
 
 export interface PlanFeatures {
   maxLotes: number;
@@ -74,6 +75,7 @@ const Ctx = createContext<PlanCtx>(null as unknown as PlanCtx);
 
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
+  const { activeProject } = useProject();
   const [plan, setPlan] = useState("free");
   const [features, setFeatures] = useState<PlanFeatures>(FREE_FEATURES);
   const [status, setStatus] = useState("free");
@@ -93,7 +95,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
     try {
       // 1. Valida licença local primeiro (funciona offline)
-      const localResult = await validateStoredLicense(session.user.id);
+       const localResult = await validateStoredLicense(session.user.user_key || session.user.id);
       if (localResult.valid) {
         setPlan(localResult.plan);
         setFeatures(normalizeFeatures(localResult.features));
@@ -101,10 +103,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       }
 
       // 2. Busca licença atualizada do servidor (quando online).
-      // O /license é a FONTE AUTORITATIVA de isCollaborator/plano.
-      let licenseIsCollab: boolean | null = null;
+      // O projeto ativo é a fonte do papel exibido; o servidor resolve o plano.
       if (navigator.onLine) {
-        const res = await fetch("/api/upgrade/license", { credentials: "include" });
+        const headers: Record<string, string> = {};
+        if (activeProject?.id) headers["X-Project-Id"] = activeProject.id;
+        const res = await fetch("/api/upgrade/license", { credentials: "include", headers });
         if (res.ok) {
           const data = await res.json();
           setPlan(data.plan);
@@ -113,8 +116,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           setTrialEnd(data.trialEnd || null);
           setCancelAtPeriodEnd(!!data.cancelAtPeriodEnd);
           setCurrentPeriodEnd(data.currentPeriodEnd || null);
-          licenseIsCollab = !!data.isCollaborator;
-          setIsCollaborator(licenseIsCollab);
+          setIsCollaborator(activeProject ? !activeProject.isOwner : !!data.isCollaborator);
 
           if (data.license) {
             setStoredLicense(data.license);
@@ -122,7 +124,6 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             setStoredLicense(null);
           }
 
-          // Calcula dias restantes do trial
           if (data.trialEnd) {
             const end = new Date(data.trialEnd);
             const now = new Date();
@@ -132,23 +133,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             setTrialRemaining(-1);
           }
         }
+      } else {
+        setIsCollaborator(activeProject ? !activeProject.isOwner : false);
       }
 
-      // 3. Complementa com o nome do dono (ownerName) e reforça isCollaborator.
-      // REGRA: getMyAccess() NUNCA sobrescreve isCollaborator=true vindo do
-      // /license com false (resposta vazia/stale não pode apagar o estado real).
+      // Mantém apenas o nome do proprietário como informação auxiliar.
       try {
         const access = await getMyAccess();
-        if (access.length > 0) {
-          setIsCollaborator(true);
-          setOwnerName(access[0].owner_name || null);
-        } else if (licenseIsCollab === true) {
-          // /license disse colaborador — mantém true; só limpa o nome do dono.
-          setOwnerName(null);
-        } else {
-          setIsCollaborator(false);
-          setOwnerName(null);
-        }
+        setOwnerName(access[0]?.owner_name || null);
       } catch {
         // silencioso — mantém o que tinha
       }
@@ -157,7 +149,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, activeProject?.id, activeProject?.isOwner]);
 
   // Inicialização: clock guard + integrity + license
   useEffect(() => {

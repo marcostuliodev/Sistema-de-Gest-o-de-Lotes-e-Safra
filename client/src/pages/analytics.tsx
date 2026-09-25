@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db/db";
 import { Card, Money, StatCard } from "../components/ui";
 import { PlanGate } from "../components/PlanGate";
+import { areaM2, formatAreaM2, numericAreaM2 } from "../lib/area";
 
 const MONTHS_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -33,6 +34,7 @@ export default function Analytics() {
   return (
     <PlanGate
       feature="relatoriosAvancados"
+      permission="reports.read"
       blockedTitle="Analytics avançado"
       blockedDescription="Faça upgrade para o plano Básico ou superior para acessar gráficos e métricas detalhadas."
     >
@@ -105,7 +107,7 @@ function AnalyticsContent() {
       return {
         id: l.id,
         nome: l.nome,
-        area: l.area,
+        area_m2: areaM2(l),
         plantios: pids.length,
         custo,
         receita,
@@ -141,7 +143,7 @@ function AnalyticsContent() {
   const lucroTotal = receitaTotal - custoTotal;
   const roi = custoTotal > 0 ? ((receitaTotal - custoTotal) / custoTotal) * 100 : 0;
   const avgReceita = (plantios ?? []).length > 0 ? receitaTotal / (plantios ?? []).length : 0;
-  const totalArea = (lotes ?? []).reduce((s, l) => s + numeric(l.area), 0);
+  const totalArea = (lotes ?? []).reduce((s, l) => s + numericAreaM2(l), 0);
   const bestCrop = culturaRows.length > 0 ? culturaRows.reduce((best, r) => (r.lucro > best.lucro ? r : best), culturaRows[0]) : null;
 
   return (
@@ -161,7 +163,7 @@ function AnalyticsContent() {
           accent="green"
           sub={bestCrop ? <Money value={bestCrop.lucro} /> : undefined}
         />
-        <StatCard label="Área cultivada" value={`${totalArea.toFixed(1)} ha`} accent="stone" sub={`${(lotes ?? []).length} lotes`} />
+        <StatCard label="Área cultivada" value={formatAreaM2({ area_m2: totalArea })} accent="stone" sub={`${(lotes ?? []).length} lotes`} />
       </div>
 
       {/* Cost vs Revenue Bar Chart */}
@@ -255,8 +257,8 @@ function AnalyticsContent() {
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h3 className="min-w-0 truncate font-semibold text-stone-800">{l.nome}</h3>
-                  {l.area != null && l.area > 0 && (
-                    <span className="ml-2 shrink-0 text-[11px] text-stone-400">{l.area} ha</span>
+                  {l.area_m2 != null && l.area_m2 > 0 && (
+                    <span className="ml-2 shrink-0 text-[11px] text-stone-400">{formatAreaM2(l)}</span>
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -266,7 +268,7 @@ function AnalyticsContent() {
                   </div>
                   <div>
                     <p className="text-stone-400">Área</p>
-                    <p className="font-medium text-stone-700">{l.area ?? "—"} ha</p>
+                    <p className="font-medium text-stone-700">{formatAreaM2(l)}</p>
                   </div>
                   <div>
                     <p className="text-stone-400">Custo</p>

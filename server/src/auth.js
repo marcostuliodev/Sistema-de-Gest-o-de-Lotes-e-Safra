@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
+import { col } from "./db.js";
+import { ObjectId } from "mongodb";
 
 const DEFAULT_SECRET = "dev-secret-agrolote";
 export const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_SECRET;
@@ -22,7 +24,12 @@ const TOKEN_TTL = process.env.JWT_TTL || "7d";
 
 export function signToken(user) {
   return jwt.sign(
-    { uid: user.id, email: user.email, email_verified: user.email_verified === true },
+    {
+      uid: user.id,
+      email: user.email,
+      email_verified: user.email_verified === true,
+      token_version: Number(user.token_version || 0),
+    },
     JWT_SECRET,
     {
       expiresIn: TOKEN_TTL,
@@ -81,24 +88,69 @@ export function clearAuthCookie(res) {
   res.setHeader("Set-Cookie", attrs.join("; "));
 }
 
+async function tokenVersionIsCurrent(payload) {
+  const users = await col("users");
+  const idFilters = [
+    { id: payload.uid },
+    { _id: payload.uid },
+    { user_key: payload.uid },
+  ];
+  if (typeof payload.uid === "string" && ObjectId.isValid(payload.uid)) {
+    idFilters.push({ _id: new ObjectId(payload.uid) });
+  }
+  if (typeof payload.uid === "string" && /^\d+$/.test(payload.uid)) {
+    idFilters.push({ id: Number(payload.uid) }, { _id: Number(payload.uid) });
+  }
+  const user = await users.findOne({ $or: idFilters });
+  if (!user) return false;
+  if (payload.token_version !== undefined) {
+    return Number(user.token_version || 0) === Number(payload.token_version || 0);
+  }
+  // Tokens legados sem claim são aceitos apenas até o primeiro logout/reset.
+  const invalidBefore = Number(user.token_invalid_before || 0);
+  return invalidBefore === 0 || Number(payload.iat || 0) > invalidBefore;
+}
+
 export function authMiddleware(req, res, next) {
   const token = getTokenFromReq(req);
   if (!token) return res.status(401).json({ error: "Nao autenticado" });
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: "agrolote",
+      audience: "agrolote-app",
+    });
+  } catch {
+    return res.status(401).json({ error: "Sessao expirada, faca login novamente" });
+  }
+  tokenVersionIsCurrent(payload)
+    .then((valid) => {
+      if (!valid) return res.status(401).json({ error: "Sessao encerrada, faca login novamente" });
+      req.user = payload;
+      next();
+    })
+    .catch(() => res.status(503).json({ error: "Servico de autenticacao indisponivel" }));
+}
+
+export function optionalAuthMiddleware(req, res, next) {
+  const token = getTokenFromReq(req);
+  if (!token) return next();
   try {
     req.user = jwt.verify(token, JWT_SECRET, {
       algorithms: ["HS256"],
       issuer: "agrolote",
       audience: "agrolote-app",
     });
-    next();
   } catch {
-    return res.status(401).json({ error: "Sessao expirada, faca login novamente" });
+    // Logout deve limpar o cookie mesmo com token expirado.
   }
+  next();
 }
 
-// VULN-010: bloqueia APENAS rotas sensíveis (checkout/trial/invite).
-// Tokens antigos sem o claim (undefined) passam — transição sem trancar
-// sessões existentes; novos logins sempre carregam o claim.
+// VULN-010: bloqueia apenas rotas sensíveis (checkout/trial/invite).
+// Tokens antigos sem claim são aceitos até token_invalid_before; novos
+// logins sempre carregam token_version.
 export function requireVerified(req, res, next) {
   authMiddleware(req, res, () => {
     if (req.user && req.user.email_verified === false) {

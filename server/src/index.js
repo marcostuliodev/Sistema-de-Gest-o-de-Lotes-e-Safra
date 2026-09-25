@@ -19,8 +19,11 @@ import cronRouter from "./routes/cron.js";
 import upgradeRouter from "./routes/upgrade.js";
 import photosRouter from "./routes/photos.js";
 import collaboratorsRouter from "./routes/collaborators.js";
+import projectsRouter from "./routes/projects.js";
 import aiRouter from "./routes/ai.js";
 import { startScheduler, logCronKey } from "./scheduler.js";
+import { initializeLicenseKeys } from "./license.js";
+import { requireClockIntegrity } from "./clock-guard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -72,8 +75,8 @@ app.use(
       cb(null, false);
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Project-Id"],
   })
 );
 
@@ -135,6 +138,7 @@ async function bootstrap() {
   if (bootstrapped) return;
 
   await migrate();
+  await initializeLicenseKeys();
   bootstrapped = true;
   await logCronKey().catch(() => {});
 
@@ -210,7 +214,7 @@ app.get("/api/health", async (_req, res) => {
       dbOk = true;
     } catch { dbOk = false; }
   }
-  res.json({ ok: true, name: "agrolote-api", time: new Date().toISOString(), hasDb, dbOk });
+  res.status(dbOk ? 200 : 503).json({ ok: dbOk, name: "agrolote-api", time: new Date().toISOString(), hasDb, dbOk });
 });
 
 // VULN-010: e-mail confirmado apenas em rotas sensíveis (checkout, trial,
@@ -218,6 +222,7 @@ app.get("/api/health", async (_req, res) => {
 app.use("/api/upgrade/checkout", requireVerified);
 app.use("/api/upgrade/trial", requireVerified);
 app.use("/api/collaborators/invite", requireVerified);
+app.use("/api/projects/:projectId/invites", requireVerified, requireClockIntegrity);
 
 app.use("/api/auth", passwordResetRouter);
 app.use("/api/auth", authRouter);
@@ -234,6 +239,7 @@ app.use("/api/cron", cronRouter);
 app.use("/api/upgrade", upgradeRouter);
 app.use("/api/photos", photosRouter);
 app.use("/api/collaborators", collaboratorsRouter);
+app.use("/api/projects", projectsRouter);
 app.use("/api/ai", aiRouter);
 
 // ═══════════════════════════════════════════════════════════════════════

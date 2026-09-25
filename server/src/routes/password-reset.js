@@ -2,13 +2,29 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { col } from "../db.js";
+import { col, withMongoTransaction } from "../db.js";
 import { hashToken } from "../auth.js";
+import { resolveUser } from "../authz.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { emailSchema, passwordSchema, escapeRegExp, sanitizeText } from "../validation.js";
 
 const router = Router();
 const RESET_TOKEN_TTL = 60 * 60 * 1000; // 1 hour
+
+function userIdentityValues(user) {
+  const values = [];
+  const seen = new Set();
+  for (const value of [user?._id, user?.id, user?.user_key, user?.email]) {
+    if (value === undefined || value === null || value === "") continue;
+    for (const candidate of [value, String(value)]) {
+      const key = `${typeof candidate}:${String(candidate)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      values.push(candidate);
+    }
+  }
+  return values;
+}
 
 // VULN-014: limite local — /resend-verification não é coberto pelo authLimiter
 // do index.js. /forgot-password já tem authLimiter montado lá.
@@ -38,13 +54,19 @@ router.post("/forgot-password", asyncHandler(async (req, res) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + RESET_TOKEN_TTL);
 
-  const resets = await col("password_resets");
-  await resets.deleteMany({ user_id: user.id || user._id });
-  await resets.insertOne({
-    user_id: user.id || user._id,
-    token_hash: hashToken(token),
-    expires_at: expires.toISOString(),
-    created_at: new Date().toISOString(),
+  await withMongoTransaction(async (session) => {
+    const resets = await col("password_resets");
+    const userValues = userIdentityValues(user);
+    await resets.deleteMany(
+      { $or: userValues.map((value) => ({ user_id: value })) },
+      { session },
+    );
+    await resets.insertOne({
+      user_id: user.id || user._id,
+      token_hash: hashToken(token),
+      expires_at: expires.toISOString(),
+      created_at: new Date().toISOString(),
+    }, { session });
   });
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -115,31 +137,48 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: parsedPass.error.issues[0]?.message || "Senha invalida" });
   }
 
-  const resets = await col("password_resets");
-  const resetRecord = await resets.findOne({ token_hash: hashToken(token) });
-
-  if (!resetRecord) {
-    return res.status(400).json({ error: "Token inválido ou expirado" });
-  }
-
-  if (new Date(resetRecord.expires_at) < new Date()) {
-    await resets.deleteOne({ _id: resetRecord._id });
-    return res.status(400).json({ error: "Token expirado. Solicite uma nova recuperação." });
-  }
-
-  const users = await col("users");
   const hash = await bcrypt.hash(parsedPass.data, 10);
+  const result = await withMongoTransaction(async (session) => {
+    const resets = await col("password_resets");
+    const now = new Date();
+    const deletedReset = await resets.findOneAndDelete(
+      { token_hash: hashToken(token), expires_at: { $gt: now.toISOString() } },
+      { returnDocument: "before", session },
+    );
+    const resetRecord = deletedReset?.value || deletedReset;
+    if (!resetRecord) return { found: false, matched: false };
+     const users = await col("users");
+     const resolved = await resolveUser({ uid: resetRecord.user_id });
+     const resolvedValues = userIdentityValues(resolved);
+     await resets.deleteMany(
+       { $or: resolvedValues.map((value) => ({ user_id: value })) },
+       { session },
+     );
+     const userFilter = {
+      $or: [
+        { id: resolved.id },
+        { _id: resolved._id },
+        { user_key: resolved.user_key },
+      ],
+    };
+    const update = await users.updateOne(
+      userFilter,
+      {
+        $set: {
+          password_hash: hash,
+          updated_at: new Date().toISOString(),
+          token_invalid_before: Math.floor(Date.now() / 1000),
+        },
+        $inc: { token_version: 1 },
+      },
+      { session },
+    );
+    if (update.matchedCount === 0) throw new Error("USER_NOT_FOUND");
+    return { found: true, matched: true };
+  });
 
-  const result = await users.updateOne(
-    { id: resetRecord.user_id },
-    { $set: { password_hash: hash } }
-  );
-
-  if (result.matchedCount === 0) {
-    return res.status(400).json({ error: "Usuário não encontrado" });
-  }
-
-  await resets.deleteOne({ _id: resetRecord._id });
+  if (!result.found) return res.status(400).json({ error: "Token inválido ou expirado" });
+  if (!result.matched) return res.status(400).json({ error: "Usuário não encontrado" });
 
   res.json({ ok: true, message: "Senha redefinida com sucesso. Faça login." });
 }));

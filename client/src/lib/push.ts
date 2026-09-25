@@ -1,3 +1,20 @@
+import { getActiveScope } from "../db/db";
+import { getScopedStorageItem, removeScopedStorageItem, setScopedStorageItem } from "./scoped-storage";
+
+const ACTIVE_PUSH_KEY = "active_push_endpoint";
+
+function projectHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  const scope = getActiveScope();
+  if (scope) headers.set("X-Project-Id", scope.projectId);
+  return headers;
+}
+
+function pushStorageContext() {
+  const scope = getActiveScope();
+  return scope ? { userId: scope.userId, projectId: scope.projectId } : null;
+}
+
 export function isPushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -8,7 +25,7 @@ export function isPushSupported(): boolean {
 }
 
 async function getVapid(): Promise<string> {
-  const res = await fetch("/api/push/vapid", { credentials: "include" });
+  const res = await fetch("/api/push/vapid", { credentials: "include", headers: projectHeaders() });
   if (!res.ok) throw new Error("Falha ao obter chave VAPID");
   const data = await res.json();
   return data.publicKey;
@@ -38,36 +55,56 @@ export async function subscribePush(): Promise<void> {
   });
   const res = await fetch("/api/push/subscribe", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: projectHeaders({ "Content-Type": "application/json" }),
     credentials: "include",
     body: JSON.stringify({ endpoint: sub.endpoint, keys: sub.toJSON().keys }),
   });
-  if (!res.ok) throw new Error("Falha ao salvar inscrição");
-}
+   if (!res.ok) throw new Error("Falha ao salvar inscrição");
+   const context = pushStorageContext();
+   if (context) setScopedStorageItem(context, ACTIVE_PUSH_KEY, sub.endpoint, "local");
+ }
 
 export async function unsubscribePush(): Promise<void> {
-  const reg = await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.getSubscription();
-  if (sub) {
-    await fetch("/api/push/unsubscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ endpoint: sub.endpoint }),
-    }).catch(() => {});
-    await sub.unsubscribe();
+  const context = pushStorageContext();
+  if (!isPushSupported()) {
+    if (context) removeScopedStorageItem(context, ACTIVE_PUSH_KEY, "local");
+    return;
+  }
+  try {
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("Service worker indisponível")), 1500)),
+    ]);
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await fetch("/api/push/unsubscribe", {
+        method: "POST",
+        headers: projectHeaders({ "Content-Type": "application/json" }),
+        credentials: "include",
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+      await sub.unsubscribe();
+    }
+  } finally {
+    if (context) removeScopedStorageItem(context, ACTIVE_PUSH_KEY, "local");
   }
 }
 
 export async function getExistingSubscription(): Promise<PushSubscription | null> {
   if (!isPushSupported()) return null;
   const reg = await navigator.serviceWorker.ready;
-  return reg.pushManager.getSubscription();
+  const sub = await reg.pushManager.getSubscription();
+  if (!sub) return null;
+  const context = pushStorageContext();
+  if (!context) return null;
+  const activeEndpoint = getScopedStorageItem(context, ACTIVE_PUSH_KEY, "local", false);
+  return activeEndpoint === sub.endpoint ? sub : null;
 }
 
 export async function sendTestPush(): Promise<void> {
   const res = await fetch("/api/push/test", {
     method: "POST",
+    headers: projectHeaders(),
     credentials: "include",
   });
   if (!res.ok) {

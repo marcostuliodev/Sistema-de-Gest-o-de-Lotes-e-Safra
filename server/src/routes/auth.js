@@ -2,9 +2,10 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { col, migrate } from "../db.js";
-import { signToken, setAuthCookie, clearAuthCookie, hashToken } from "../auth.js";
+import { signToken, setAuthCookie, clearAuthCookie, hashToken, optionalAuthMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { emailSchema, passwordSchema, nameSchema, escapeRegExp, sanitizeText } from "../validation.js";
+import { createUserKey, ensureUserKey, idToString, resolveUser } from "../authz.js";
 
 const router = Router();
 
@@ -35,7 +36,8 @@ router.post("/register", asyncHandler(async (req, res) => {
   }
   const hash = await bcrypt.hash(parsedPass.data, 10);
   const id = Date.now();
-  await users.insertOne({ _id: id, id, name: parsedName.data, email: parsedEmail.data, password_hash: hash, email_verified: false, created_at: new Date().toISOString() });
+  const userKey = createUserKey();
+  await users.insertOne({ _id: id, id, user_key: userKey, name: parsedName.data, email: parsedEmail.data, password_hash: hash, email_verified: false, created_at: new Date().toISOString() });
 
   // Send verification email
   const verificationToken = crypto.randomBytes(32).toString("hex");
@@ -98,7 +100,7 @@ router.post("/register", asyncHandler(async (req, res) => {
     }
   }
 
-  const user = { id, name: parsedName.data, email: parsedEmail.data, email_verified: false };
+  const user = { id, user_key: userKey, name: parsedName.data, email: parsedEmail.data, email_verified: false };
   // VULN-007/023: sem JWT no body e sem cookie em register — o cliente
   // mostra a tela genérica e o usuário entra via /login (fluxo idêntico
   // para e-mail novo e já cadastrado).
@@ -119,7 +121,15 @@ router.post("/login", asyncHandler(async (req, res) => {
     if (!user || !okPassword) {
       return res.status(401).json({ error: "Credenciais invalidas" });
     }
-    const safe = { id: user.id, name: user.name, email: user.email, email_verified: user.email_verified !== false };
+    const userKey = await ensureUserKey(user, users);
+    const safe = {
+       id: typeof user.id === "number" || typeof user.id === "string" ? user.id : idToString(user._id ?? userKey),
+      user_key: idToString(userKey),
+      name: user.name,
+      email: user.email,
+       email_verified: user.email_verified !== false,
+       token_version: Number(user.token_version || 0),
+     };
     const token = signToken(safe);
     setAuthCookie(res, token);
     // VULN-023: JWT só no cookie HttpOnly — não volta no body (client ignora).
@@ -134,16 +144,39 @@ export async function createDemoAccount() {
   await migrate();
   const users = await col("users");
   const exists = await users.findOne({ email: { $regex: /^demo@agrolote\.app$/i } });
-  if (exists) return exists.id;
+  if (exists) {
+    await ensureUserKey(exists, users);
+    return exists.id ?? exists._id;
+  }
   const hash = await bcrypt.hash("demo123", 10);
   const id = Date.now();
-  await users.insertOne({ _id: id, id, name: "Produtor Demo", email: "demo@agrolote.app", password_hash: hash, email_verified: true, created_at: new Date().toISOString() });
+  const userKey = createUserKey();
+  await users.insertOne({ _id: id, id, user_key: userKey, name: "Produtor Demo", email: "demo@agrolote.app", password_hash: hash, email_verified: true, created_at: new Date().toISOString() });
   return id;
 }
 
-router.post("/logout", (req, res) => {
+router.post("/logout", optionalAuthMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const resolved = await resolveUser({ uid: req.user.uid });
+    const values = [req.user.uid, resolved?.user_key, resolved?.id, resolved?._id]
+      .filter((value) => value !== undefined && value !== null)
+      .map(String);
+     if (values.length > 0) {
+       await (await col("users")).updateOne(
+         { $or: values.map((value) => ({ id: value })).concat(values.map((value) => ({ _id: value }))).concat(values.map((value) => ({ user_key: value }))) },
+         { $inc: { token_version: 1 }, $set: { token_invalid_before: Math.floor(Date.now() / 1000), updated_at: new Date().toISOString() } },
+       );
+     }
+    if (values.length > 0) {
+      await (await col("push_subscriptions")).deleteMany({
+        $or: values.flatMap((value) => [{ user_id: value }, { actor: value }]),
+      });
+    }
+  } catch {
+    // Logout local ainda deve funcionar se o banco estiver indisponível.
+  }
   clearAuthCookie(res);
   res.json({ ok: true });
-});
+}));
 
 export default router;

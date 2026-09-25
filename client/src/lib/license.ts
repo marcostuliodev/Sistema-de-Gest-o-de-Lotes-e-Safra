@@ -9,9 +9,12 @@
  * que só existe no servidor.
  */
 
+import { getActiveScope } from "../db/db";
+import { getScopedStorageItem, removeScopedStorageItem, setScopedStorageItem, type ScopedStorageContext } from "./scoped-storage";
+
 export interface LicensePayload {
   v: number;
-  uid: number;
+  uid: number | string;
   plan: string;
   features: {
     maxLotes: number;
@@ -35,6 +38,14 @@ export interface LicenseValidation {
 
 const PUBLIC_KEY_CACHE_KEY = "agrolote_license_pubkey";
 const LICENSE_KEY = "agrolote_license";
+
+function storageContext(userId?: number | string): ScopedStorageContext | null {
+  const scope = getActiveScope();
+  if (scope && (userId === undefined || String(scope.userId) === String(userId) || String(scope.accountId) === String(userId))) {
+    return { userId: scope.userId, projectId: scope.projectId };
+  }
+  return userId === undefined ? null : { userId, projectId: null };
+}
 
 // Default free plan features
 const FREE_FEATURES = {
@@ -79,34 +90,35 @@ function base64ToUint8Array(base64: string): Uint8Array {
  * SEMPRE tenta o servidor primeiro — se a chave do server mudou (redeploy
  * com env nova), o cache local antigo invalidaria a verificação offline.
  */
-async function getPublicKey(): Promise<string | null> {
+async function getPublicKey(userId?: number | string): Promise<string | null> {
+  const context = storageContext(userId);
   try {
     const res = await fetch("/api/upgrade/public-key", { credentials: "include" });
     if (res.ok) {
       const data = await res.json();
       if (data.publicKey) {
-        const cached = localStorage.getItem(PUBLIC_KEY_CACHE_KEY);
-        if (cached !== data.publicKey) {
-          localStorage.setItem(PUBLIC_KEY_CACHE_KEY, data.publicKey);
+        if (context) {
+          const cached = getScopedStorageItem(context, PUBLIC_KEY_CACHE_KEY, "local", true);
+          if (cached !== data.publicKey) setScopedStorageItem(context, PUBLIC_KEY_CACHE_KEY, data.publicKey, "local");
         }
         return data.publicKey;
       }
     }
   } catch {
-    // Offline — usa cache
+    return context ? getScopedStorageItem(context, PUBLIC_KEY_CACHE_KEY, "local", true) : null;
   }
-  return localStorage.getItem(PUBLIC_KEY_CACHE_KEY);
+  return context ? getScopedStorageItem(context, PUBLIC_KEY_CACHE_KEY, "local", true) : null;
 }
 
 /**
  * Valida uma licença assinada localmente.
  */
-export async function validateLicense(signedLicense: string, userId: number): Promise<LicenseValidation> {
+export async function validateLicense(signedLicense: string, userId: number | string): Promise<LicenseValidation> {
   const fallback: LicenseValidation = { valid: false, plan: "free", features: FREE_FEATURES, reason: "fallback" };
 
   try {
     const license: LicensePayload = JSON.parse(signedLicense);
-    const publicKeyPem = await getPublicKey();
+    const publicKeyPem = await getPublicKey(userId);
     if (!publicKeyPem) return fallback;
 
     // Prepara payload para verificação (tudo exceto sig)
@@ -125,7 +137,7 @@ export async function validateLicense(signedLicense: string, userId: number): Pr
     );
 
     if (!valid) return { ...fallback, reason: "assinatura_invalida" };
-    if (license.uid !== userId) return { ...fallback, reason: "user_mismatch" };
+    if (String(license.uid) !== String(userId)) return { ...fallback, reason: "user_mismatch" };
     // Expiração checada contra o relógio do dispositivo (Date.now) — mantém
     // funcionamento offline; o clock-guard do servidor cobre rollback.
     if (new Date(license.exp).getTime() < Date.now()) return { ...fallback, reason: "expirado" };
@@ -138,15 +150,18 @@ export async function validateLicense(signedLicense: string, userId: number): Pr
 
 // ── Persistência local ──────────────────────────────────────────────
 
-export function getStoredLicense(): string | null {
-  return localStorage.getItem(LICENSE_KEY);
+export function getStoredLicense(userId?: number | string): string | null {
+  const context = storageContext(userId);
+  return context ? getScopedStorageItem(context, LICENSE_KEY, "local", true) : null;
 }
 
-export function setStoredLicense(license: string | null) {
+export function setStoredLicense(license: string | null, userId?: number | string) {
+  const context = storageContext(userId);
+  if (!context) return;
   if (license) {
-    localStorage.setItem(LICENSE_KEY, license);
+    setScopedStorageItem(context, LICENSE_KEY, license, "local");
   } else {
-    localStorage.removeItem(LICENSE_KEY);
+    removeScopedStorageItem(context, LICENSE_KEY, "local");
   }
 }
 
@@ -154,8 +169,8 @@ export function setStoredLicense(license: string | null) {
  * Valida licença armazenada localmente.
  * Retorna features do plano ou free se inválida/expirada.
  */
-export async function validateStoredLicense(userId: number): Promise<LicenseValidation> {
-  const stored = getStoredLicense();
+export async function validateStoredLicense(userId: number | string): Promise<LicenseValidation> {
+  const stored = getStoredLicense(userId);
   if (!stored) return { valid: false, plan: "free", features: FREE_FEATURES };
   return validateLicense(stored, userId);
 }
@@ -169,7 +184,8 @@ export async function refreshPublicKey(): Promise<boolean> {
     if (!res.ok) return false;
     const data = await res.json();
     if (data.publicKey) {
-      localStorage.setItem(PUBLIC_KEY_CACHE_KEY, data.publicKey);
+      const context = storageContext();
+      if (context) setScopedStorageItem(context, PUBLIC_KEY_CACHE_KEY, data.publicKey, "local");
       return true;
     }
   } catch { /* offline */ }

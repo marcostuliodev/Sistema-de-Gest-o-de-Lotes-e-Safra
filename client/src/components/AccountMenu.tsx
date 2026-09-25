@@ -21,7 +21,8 @@ import {
   X,
   Trash,
 } from "./icons";
-import { db } from "../db/db";
+import { clearLocal, getActiveScope } from "../db/db";
+import { clearScopedStorage } from "../lib/scoped-storage";
 
 const PLAN_BADGES: Record<string, { label: string; tone: "gray" | "green" | "blue" | "amber" }> = {
   free: { label: "Free", tone: "gray" },
@@ -35,6 +36,8 @@ const SHORTCUTS: { to: string; label: string; icon: React.ReactNode }[] = [
   { to: "/relatorios", label: "Relatórios", icon: <Chart /> },
   { to: "/analytics", label: "Analytics", icon: <Chart /> },
   { to: "/historico", label: "Histórico", icon: <Chart /> },
+  { to: "/insumos", label: "Insumos", icon: <Grid /> },
+  { to: "/gastos", label: "Gastos", icon: <Leaf /> },
   { to: "/upgrade", label: "Planos & Upgrade", icon: <Leaf /> },
   { to: "/colaboradores", label: "Colaboradores", icon: <Users /> },
 ];
@@ -114,31 +117,25 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
     }
   }
 
-  // Limpa todo o cache do usuário: Service Worker, IndexedDB, localStorage, sessionStorage
   async function clearCache() {
+    if (!window.confirm("Isso apagará os dados offline e a fila de sincronização deste projeto. Continuar?")) return;
     try {
-      // 1. Cancela o registro do Service Worker PRIMEIRO (senão ele pode
-      //    re-popular o cache de API durante a limpeza).
       if ("serviceWorker" in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg) await reg.unregister();
       }
-      // 2. Limpa caches do Service Worker (inclui api-cache com dados do usuário)
       if ("caches" in window) {
         const names = await caches.keys();
         await Promise.all(names.map((n) => caches.delete(n)));
       }
-      // 3. Fecha o Dexie (IndexedDB)
-      await db.close();
-      // 4. Deleta o banco IndexedDB
-      indexedDB.deleteDatabase("agrolote");
-      // 5. Limpa localStorage e sessionStorage
-      localStorage.clear();
-      sessionStorage.clear();
-      // 6. Recarrega a página com cache limpo
+      const scope = getActiveScope();
+      if (scope) {
+        clearScopedStorage(scope, "local");
+        clearScopedStorage(scope, "session");
+        await clearLocal();
+      }
       window.location.reload();
     } catch {
-      // Mesmo se falhar em algum passo, força recarregar
       window.location.reload();
     }
   }
@@ -337,7 +334,7 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
           <button
             onClick={() => {
               onClose();
-              logout();
+               void logout();
             }}
             className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
           >

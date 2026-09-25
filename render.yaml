@@ -1,18 +1,14 @@
 # Render Blueprint — deploy no plano gratuito
 # 1) Crie um repositório no GitHub com este projeto e faça push.
 # 2) No render.com: New > Blueprint > conecte o repositório > Apply.
-# Resultado: https://agrolote.onrender.com com HTTPS + PWA instalável.
+# Resultado: HTTPS + PWA instalável.
 #
-# O banco é PostgreSQL (grátis) — PERSISTENTE entre deploys/restart.
-# O disco do plano free do Render é efêmero, por isso não usamos mais SQLite local.
-
-databases:
-  - name: agrolote-db
-    databaseName: agrolote
-    user: agrolote
-    plan: free
-    region: virginia
-    postgresMajorVersion: 16
+# O serviço web e o cron job exigem o mesmo CRON_KEY. Defina-o manualmente
+# nos dois services após aplicar o Blueprint.
+#
+# MongoDB é a única fonte de dados do servidor. Informe a URI do cluster
+# (Atlas ou MongoDB persistente) no secret MONGODB_URI do serviço.
+# Use replica set/sharded cluster; exclusões exigem transações.
 
 services:
   - type: web
@@ -33,12 +29,25 @@ services:
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: SEED_DEMO
-        value: "true"
+        value: "false"
       - key: JWT_SECRET
         generateValue: true
       - key: CRON_KEY
         generateValue: true
-      - key: DATABASE_URL
-        fromDatabase:
-          name: agrolote-db
-          property: connectionString
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: agrolote
+      - key: MAX_PROJECTS_PER_OWNER
+        value: "20"
+  - type: cron
+    name: agrolote-weather-cron
+    schedule: "*/15 * * * *"
+    buildCommand: "true"
+    startCommand: >-
+      curl --fail --silent --show-error --max-time 55
+      -H "x-cron-key: $CRON_KEY"
+      https://agrolote.marcostuliogc.com.br/api/cron/weather
+    envVars:
+      - key: CRON_KEY
+        sync: false

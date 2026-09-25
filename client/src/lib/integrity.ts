@@ -10,6 +10,9 @@
  * Cada detecção gera um "signal" enviado ao servidor.
  */
 
+import { getActiveScope } from "../db/db";
+import { getScopedStorageItem, setScopedStorageItem } from "./scoped-storage";
+
 export interface IntegritySignal {
   signal: string;
   severity: "low" | "medium" | "high" | "critical";
@@ -17,6 +20,11 @@ export interface IntegritySignal {
 }
 
 const BLOCKED_KEY = "agrolote_integrity_blocked";
+
+function storageContext() {
+  const scope = getActiveScope();
+  return scope ? { userId: scope.userId, projectId: scope.projectId } : null;
+}
 
 // ── Detecções ───────────────────────────────────────────────────────
 
@@ -153,7 +161,8 @@ export async function reportIntegrity(signals: IntegritySignal[]): Promise<{ sco
     const data = await res.json();
 
     if (data.blocked) {
-      localStorage.setItem(BLOCKED_KEY, "1");
+      const context = storageContext();
+      if (context) setScopedStorageItem(context, BLOCKED_KEY, "1", "local");
     }
     return data;
   } catch {
@@ -165,7 +174,8 @@ export async function reportIntegrity(signals: IntegritySignal[]): Promise<{ sco
  * Verifica se o usuário está bloqueado localmente.
  */
 export function isLocallyBlocked(): boolean {
-  return localStorage.getItem(BLOCKED_KEY) === "1";
+  const context = storageContext();
+  return !!context && getScopedStorageItem(context, BLOCKED_KEY, "local", false) === "1";
 }
 
 /**

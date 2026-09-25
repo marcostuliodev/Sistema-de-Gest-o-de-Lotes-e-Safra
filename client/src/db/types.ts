@@ -1,19 +1,26 @@
 export interface User {
-  id: number;
+  id: number | string;
+  user_key?: string;
   name: string;
   email: string;
 }
 
-export interface Lote {
+export interface ScopedEntity {
+  project_id?: string;
+  account_id?: string;
+}
+
+export interface Lote extends ScopedEntity {
   id: string;
   nome: string;
   tipo: "talhao" | "bancada" | "vaso";
+  area_m2?: number | null;
   area?: number | null;
   localizacao?: string | null;
   created_at?: string;
 }
 
-export interface Plantio {
+export interface Plantio extends ScopedEntity {
   id: string;
   lote_id: string;
   cultura: string;
@@ -26,14 +33,14 @@ export interface Plantio {
   created_at?: string;
 }
 
-export interface Insumo {
+export interface Insumo extends ScopedEntity {
   id: string;
   nome: string;
   categoria?: string | null;
   unidade?: string | null;
 }
 
-export interface Gasto {
+export interface Gasto extends ScopedEntity {
   id: string;
   plantio_id?: string | null;
   insumo_id?: string | null;
@@ -44,7 +51,7 @@ export interface Gasto {
   created_at?: string;
 }
 
-export interface Colheita {
+export interface Colheita extends ScopedEntity {
   id: string;
   plantio_id: string;
   data: string;
@@ -80,8 +87,50 @@ export type EntityName = "lotes" | "plantios" | "insumos" | "gastos" | "colheita
 
 export interface SyncOp {
   entity: EntityName;
-  action: "upsert" | "delete";
-  data: Record<string, unknown> & { id: string };
+  action: "upsert" | "create" | "update" | "delete";
+  data: Record<string, unknown> & { id: string; cascade?: boolean };
+  cascade?: boolean;
+  /** Backup local para reexibir uma exclusão rejeitada pelo servidor. */
+  rollback?: Record<string, Record<string, unknown>[]>;
+  /** Operações pendentes removidas pelo cascade, restauradas se ele for rejeitado. */
+  rollback_operations?: Array<{
+    entity: EntityName;
+    action: "upsert" | "create" | "update" | "delete";
+    data: Record<string, unknown> & { id: string; cascade?: boolean };
+    cascade?: boolean;
+    op_id?: string;
+    base_updated_at?: string;
+  }>;
+  /** Identificador idempotente da operação. */
+  op_id?: string;
+  /** Revisão do servidor usada como precondição de update. */
+  base_updated_at?: string;
+}
+
+export type SyncDeletedEntity = EntityName | "photos_metadata";
+
+export interface SyncTombstone {
+  entity: SyncDeletedEntity;
+  id: string;
+  deleted_at: string;
+  cascade: boolean;
+  seq?: number;
+}
+
+export interface SyncDeleteResult {
+  entity: EntityName;
+  id: string;
+  cascade: boolean;
+  deleted: boolean;
+  alreadyDeleted?: boolean;
+  deletedCount: number;
+  deletedIds: string[];
+  deletedEntities?: { entity: SyncDeletedEntity; id: string }[];
+  counts?: Record<string, number>;
+  photos?: { metadata: number; gridfs: number };
+  disassociatedCount: number;
+  disassociatedIds: string[];
+  tombstones: SyncTombstone[];
 }
 
 export interface Snapshot {
@@ -90,4 +139,5 @@ export interface Snapshot {
   insumos: Insumo[];
   gastos: Gasto[];
   colheitas: Colheita[];
+  tombstones?: SyncTombstone[];
 }

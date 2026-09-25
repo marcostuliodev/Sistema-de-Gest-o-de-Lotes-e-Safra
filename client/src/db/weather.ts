@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { getActiveScope, db } from "./db";
 
 export interface GeoResult {
   name: string;
@@ -84,7 +84,11 @@ export interface WeatherResponse {
 }
 
 async function authed(path: string, options: RequestInit = {}) {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...(options.headers as Record<string, string>) };
+  const scope = getActiveScope();
+  if (!scope) throw new Error("Projeto não selecionado");
+  const headers = new Headers(options.headers);
+  headers.set("X-Project-Id", scope.projectId);
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const res = await fetch(path, { ...options, headers, credentials: "include" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -117,7 +121,14 @@ export async function fetchAlerts(): Promise<WeatherAlert[]> {
 }
 
 export async function cacheWeather(resp: WeatherResponse) {
-  await db.meta.put({ key: "last_weather", value: resp });
+  const scope = getActiveScope();
+  if (!scope) return;
+  await db.meta.put({
+    key: "last_weather",
+    value: resp,
+    project_id: scope.projectId,
+    account_id: scope.accountId,
+  });
 }
 
 export async function getCachedWeather(): Promise<WeatherResponse | null> {

@@ -1,5 +1,6 @@
 import { CrudPage } from "../components/CrudPage";
 import { Badge } from "../components/ui";
+import { formatAreaM2 } from "../lib/area";
 
 const tipoLabel: Record<string, string> = { talhao: "Talhão", bancada: "Bancada", vaso: "Estufa/Vaso" };
 
@@ -15,7 +16,7 @@ export default function Lotes() {
         columns: [
           { key: "nome", header: "Nome", render: (r) => <span className="font-medium text-stone-800">{r.nome}</span> },
           { key: "tipo", header: "Tipo", render: (r) => <Badge tone={r.tipo === "talhao" ? "green" : "blue"}>{tipoLabel[r.tipo] ?? r.tipo}</Badge> },
-          { key: "area", header: "Área (m²)", center: true, render: (r) => (r.area ? Number(r.area).toLocaleString("pt-BR") : "—") },
+          { key: "area_m2", header: "Área (m²)", center: true, render: (r) => formatAreaM2(r) },
           { key: "localizacao", header: "Localização", render: (r) => r.localizacao || "—" },
         ],
         fields: [
@@ -30,7 +31,7 @@ export default function Lotes() {
               { value: "vaso", label: "Estufa / Vasos" },
             ],
           },
-          { name: "area", label: "Área (m²)", type: "number", step: "0.1", placeholder: "Ex.: 1200" },
+          { name: "area_m2", label: "Área (m²)", type: "number", step: "0.1", placeholder: "Ex.: 1200" },
           { name: "localizacao", label: "Localização", type: "text", placeholder: "Ex.: Setor 1, margem do riacho" },
         ],
         emptyTitle: "Nenhum lote cadastrado",

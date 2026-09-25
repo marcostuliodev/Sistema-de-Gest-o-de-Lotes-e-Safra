@@ -8,17 +8,20 @@
  * Limite diário por plano (maxIaDia), exibido no topo.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Badge, TextInput, EmptyState } from "../components/ui";
 import { Camera, Leaf } from "../components/icons";
 import { usePlan } from "../store/plan";
+import { useProject } from "../store/project";
 import {
   analyzePhoto,
   fetchAiUsage,
   sendAiChat,
   type AiAnalysis,
   type AiChatMessage,
+  type AiContextFlags,
+  type AiContextUsed,
   type AiUsage,
 } from "../db/ai";
 
@@ -50,6 +53,95 @@ const SUGGESTIONS = [
   "Qual substrato usar para Cattleya?",
   "Sinais de fungo em folhas de orquídea",
 ];
+
+type ContextFlagKey = keyof AiContextFlags;
+
+const DEFAULT_CONTEXT_FLAGS: Required<AiContextFlags> = {
+  include_project: true,
+  include_location: true,
+  include_weather: true,
+};
+
+const CONTEXT_LABELS: Record<string, string> = {
+  projeto: "projeto",
+  lotes: "lotes",
+  plantios_ativos: "plantios ativos",
+  insumos: "insumos",
+  gastos: "gastos",
+  colheitas: "colheitas",
+  localizacao: "localização",
+  clima: "clima",
+};
+
+function ContextSummary({
+  projectName,
+  flags,
+  usedContext,
+  onToggle,
+}: {
+  projectName: string;
+  flags: Required<AiContextFlags>;
+  usedContext?: AiContextUsed;
+  onToggle: (key: ContextFlagKey, value: boolean) => void;
+}) {
+  const categories = usedContext?.categories || [];
+  return (
+    <section className="rounded-2xl border border-stone-200 bg-stone-50/80 p-3 sm:p-4" aria-label="Contexto usado pela IA">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wide text-stone-500">Contexto da IA</p>
+          <p className="mt-1 break-words text-sm font-semibold text-stone-800">Projeto: {projectName}</p>
+        </div>
+        <Badge tone="green">Selecionado pelo servidor</Badge>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-stone-600">
+        <span className="rounded-full bg-white px-2.5 py-1">Registros: {flags.include_project ? "lotes, plantios ativos, insumos, gastos e colheitas" : "desativados"}</span>
+        <span className="rounded-full bg-white px-2.5 py-1">Localização: {flags.include_location ? "incluída se configurada" : "desativada"}</span>
+        <span className="rounded-full bg-white px-2.5 py-1">Clima: {flags.include_weather ? "atual e próximas horas" : "desativado"}</span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
+          <input
+            type="checkbox"
+            checked={flags.include_project}
+            onChange={(event) => onToggle("include_project", event.target.checked)}
+            className="h-4 w-4 accent-green-700"
+          />
+          Usar registros do projeto
+        </label>
+        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
+          <input
+            type="checkbox"
+            checked={flags.include_location}
+            onChange={(event) => onToggle("include_location", event.target.checked)}
+            className="h-4 w-4 accent-green-700"
+          />
+          Usar localização
+        </label>
+        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
+          <input
+            type="checkbox"
+            checked={flags.include_weather}
+            onChange={(event) => onToggle("include_weather", event.target.checked)}
+            className="h-4 w-4 accent-green-700"
+          />
+          Usar clima
+        </label>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-stone-500">
+        O projeto não pode ser alterado pela IA. O servidor envia apenas o contexto autorizado deste projeto.
+      </p>
+      {categories.length > 0 && (
+        <p className="mt-2 break-words text-[11px] text-stone-500">
+          Última resposta: {categories.map((category) => CONTEXT_LABELS[category] || category).join(", ")}.
+        </p>
+      )}
+      {usedContext?.warnings && usedContext.warnings.length > 0 && (
+        <p className="mt-1 text-[11px] text-amber-700">{usedContext.warnings.join(" ")}</p>
+      )}
+    </section>
+  );
+}
 
 function UsageBar({ usage }: { usage: AiUsage | null }) {
   if (!usage) return null;
@@ -191,7 +283,15 @@ function AnalysisResult({ a }: { a: AiAnalysis }) {
   );
 }
 
-function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
+function FotoTab({
+  onUsage,
+  onContext,
+  contextOptions,
+}: {
+  onUsage: (u: AiUsage) => void;
+  onContext: (context?: AiContextUsed) => void;
+  contextOptions: AiContextFlags;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -222,9 +322,10 @@ function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
     setBusy(true);
     setError("");
     try {
-      const result = await analyzePhoto(file, question);
+      const result = await analyzePhoto(file, question, contextOptions);
       setAnalysis(result.analysis);
       onUsage(result.usage);
+      onContext(result.context);
     } catch (err) {
       const e = err as Error & { upgrade?: boolean };
       setError(e.message);
@@ -332,7 +433,15 @@ function FotoTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
 
 // ── Aba: chat ─────────────────────────────────────────────────────────
 
-function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
+function ChatTab({
+  onUsage,
+  onContext,
+  contextOptions,
+}: {
+  onUsage: (u: AiUsage) => void;
+  onContext: (context?: AiContextUsed) => void;
+  contextOptions: AiContextFlags;
+}) {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -355,9 +464,10 @@ function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
     setMessages(next);
     setBusy(true);
     try {
-      const result = await sendAiChat(next.slice(-20));
+      const result = await sendAiChat(next.slice(-20), contextOptions);
       setMessages([...next, { role: "assistant" as const, content: result.reply }]);
       onUsage(result.usage);
+      onContext(result.context);
     } catch (err) {
       const e = err as Error & { upgrade?: boolean };
       setError(e.message);
@@ -454,20 +564,50 @@ function ChatTab({ onUsage }: { onUsage: (u: AiUsage) => void }) {
 // ── Página ────────────────────────────────────────────────────────────
 
 export default function AgroIA() {
+  const { activeProject, can } = useProject();
+  const projectId = activeProject?.id || "";
   const [tab, setTab] = useState<Tab>("foto");
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [contextFlags, setContextFlags] = useState<Required<AiContextFlags>>(DEFAULT_CONTEXT_FLAGS);
+  const [usedContext, setUsedContext] = useState<AiContextUsed | undefined>();
   const navigate = useNavigate();
   const { isCollaborator } = usePlan();
+  const contextOptions = useMemo(() => contextFlags, [contextFlags]);
 
   useEffect(() => {
+    let cancelled = false;
+    setTab("foto");
+    setUsage(null);
+    setLoadError("");
+    setContextFlags({ ...DEFAULT_CONTEXT_FLAGS });
+    setUsedContext(undefined);
+    if (!projectId) return () => {
+      cancelled = true;
+    };
     fetchAiUsage()
-      .then(setUsage)
-      .catch((e: Error) => setLoadError(e.message));
-  }, []);
+      .then((value) => {
+        if (!cancelled) setUsage(value);
+      })
+      .catch((error: Error) => {
+        if (!cancelled) setLoadError(error.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   const atLimit =
     usage && usage.limit !== Infinity && usage.limit < 10000 && usage.used >= usage.limit;
+
+  if (!can("ai.use")) {
+    return (
+      <Card className="text-center">
+        <p className="font-semibold text-stone-700">AgroIA não liberada para este papel</p>
+        <p className="mt-2 text-sm text-stone-500">O proprietário pode conceder a permissão `ai.use`.</p>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -492,7 +632,16 @@ export default function AgroIA() {
         <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{loadError}</p>
       )}
 
-      {/* Abas */}
+      <ContextSummary
+        projectName={activeProject?.name || activeProject?.nome || "Projeto ativo"}
+        flags={contextFlags}
+        usedContext={usedContext}
+        onToggle={(key, value) => {
+          setContextFlags((current) => ({ ...current, [key]: value }));
+          setUsedContext(undefined);
+        }}
+      />
+
       <div className="flex gap-1 rounded-xl bg-stone-100 p-1">
         {(
           [
@@ -519,9 +668,19 @@ export default function AgroIA() {
           message={`Você usou todas as ${usage!.limit} análises de hoje. Volte amanhã ou faça upgrade para mais.`}
         />
       ) : tab === "foto" ? (
-        <FotoTab onUsage={setUsage} />
+        <FotoTab
+          key={`foto:${projectId}`}
+          onUsage={setUsage}
+          onContext={setUsedContext}
+          contextOptions={contextOptions}
+        />
       ) : (
-        <ChatTab onUsage={setUsage} />
+        <ChatTab
+          key={`chat:${projectId}`}
+          onUsage={setUsage}
+          onContext={setUsedContext}
+          contextOptions={contextOptions}
+        />
       )}
 
       {usage && usage.limit === 0 && !isCollaborator && (

@@ -101,19 +101,96 @@ export function formatPrice(centavos) {
 /** Lista de planos pagos (exclui free). */
 export const PAID_PLANS = ["basico", "pro", "premium"];
 
+export function getSubscriptionPlan(subscription, now = Date.now()) {
+  if (!subscription) return "free";
+  const status = String(subscription.status || "").toLowerCase();
+  if (status === "trial") {
+    const configuredEnd = subscription.current_period_end ? new Date(subscription.current_period_end).getTime() : NaN;
+    const started = subscription.trial_started_at ? new Date(subscription.trial_started_at).getTime() : NaN;
+    const trialEnd = Number.isFinite(configuredEnd)
+      ? configuredEnd
+      : Number.isFinite(started)
+        ? started + TRIAL_DAYS * 86400000
+        : NaN;
+    return Number.isFinite(trialEnd) && trialEnd > now && isValidPlan(subscription.trial_plan)
+      ? subscription.trial_plan
+      : "free";
+  }
+  return ["active", "past_due"].includes(status) && isValidPlan(subscription.plan)
+    ? subscription.plan
+    : "free";
+}
+
+export async function isProjectCollaborator(userId) {
+  const { col } = await import("./db.js");
+  const { resolveUser } = await import("./authz.js");
+  let resolved;
+  try {
+    resolved = await resolveUser({ uid: userId });
+  } catch {
+    return false;
+  }
+  const values = [resolved?._id, resolved?.id, resolved?.user_key, userId]
+    .filter((value) => value !== undefined && value !== null && value !== "")
+    .map(String);
+  if (values.length === 0) return false;
+  const rows = await (await col("project_members")).find({
+    $or: values.flatMap((value) => [{ user_key: value }, { user_id: value }]),
+  }).toArray();
+  return rows.some((row) => {
+    const status = row.status === undefined || row.status === null ? "active" : String(row.status).toLowerCase();
+    const role = String(row.role_id || row.role || "").toLowerCase();
+    return status === "active" && role !== "owner";
+  });
+}
+
 /**
  * Resolve o plano efetivo de um usuário.
  * Se for colaborador ativo, herda o plano do dono.
  */
-export async function resolveEffectivePlan(userId) {
+export async function resolveEffectivePlan(userId, projectId = null) {
   const { col } = await import("./db.js");
-  const collabsCol = await col("collaborators");
-  const collab = await collabsCol.findOne({ user_id: userId, status: "active" });
+  let ownerId = userId;
+  let isCollaborator = false;
+  let role = null;
 
-  const lookupId = collab ? collab.owner_id : userId;
+  if (projectId) {
+    const { resolveProject, resolveProjectAccess } = await import("./authz.js");
+    const project = await resolveProject(projectId);
+    const access = await resolveProjectAccess(projectId, { uid: userId });
+    if (project && access) {
+      ownerId = project.owner_id || project.owner_key || project.created_by || userId;
+      isCollaborator = access.isOwner !== true;
+      role = access.role || null;
+    }
+  } else {
+    const collabsCol = await col("collaborators");
+    const collab = await collabsCol.findOne({ user_id: userId, status: "active" });
+    if (collab) {
+      ownerId = collab.owner_id;
+      isCollaborator = true;
+      role = collab.role;
+    }
+  }
 
-  const sub = await (await col("subscriptions")).findOne({ user_id: lookupId });
-  const plan = sub?.status === "trial" ? sub.trial_plan : (sub?.plan || "free");
+  const ownerValues = ownerId === undefined || ownerId === null
+    ? []
+    : [ownerId, String(ownerId)];
+  if (ownerId !== undefined && ownerId !== null) {
+    try {
+      const { resolveUser } = await import("./authz.js");
+      const owner = await resolveUser({ uid: ownerId });
+      for (const value of [owner?._id, owner?.id, owner?.user_key, owner?.email]) {
+        if (value !== undefined && value !== null) ownerValues.push(value, String(value));
+      }
+    } catch {
+      // mantém os IDs legados já coletados
+    }
+  }
+  const sub = ownerValues.length > 0
+    ? await (await col("subscriptions")).findOne({ $or: ownerValues.map((value) => ({ user_id: value })) })
+    : null;
+  const plan = getSubscriptionPlan(sub);
 
-  return { plan, isCollaborator: !!collab, owner_id: collab?.owner_id || null, role: collab?.role || null };
+  return { plan, isCollaborator, owner_id: ownerId || null, role };
 }

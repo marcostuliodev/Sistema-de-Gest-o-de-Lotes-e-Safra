@@ -3,11 +3,13 @@ import { db } from "../db/db";
 import { Badge, Button, Card, Money, StatCard } from "../components/ui";
 import { PlanGate } from "../components/PlanGate";
 import { generatePdfReport } from "../lib/pdf-export";
+import { areaM2, formatAreaM2 } from "../lib/area";
 
 export default function Relatorios() {
   return (
     <PlanGate
       feature="relatoriosAvancados"
+      permission="reports.read"
       blockedTitle="Relatórios avançados"
       blockedDescription="Faça upgrade para o plano Básico ou superior para acessar relatórios detalhados por cultura e por lote."
     >
@@ -48,14 +50,21 @@ function RelatoriosContent() {
       const pids = (plantios ?? []).filter((p) => p.lote_id === l.id).map((p) => p.id);
       const custo = pids.reduce((s, pid) => s + custoDe(pid), 0);
       const receita = pids.reduce((s, pid) => s + receitaDe(pid), 0);
-      return { lote: l.nome, custo, receita, lucro: receita - custo };
+      return { lote: l.nome, area_m2: areaM2(l), custo, receita, lucro: receita - custo };
     })
     .sort((a, b) => b.lucro - a.lucro);
+
+  function csvCell(value: unknown): string {
+    let text = String(value ?? "");
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    if (/[;"\r\n]/.test(text)) text = `"${text.replaceAll('"', '""')}"`;
+    return text;
+  }
 
   function exportCsv() {
     const heads = ["Cultura", "Plantios", "Rendimento total", "Receita (R$)", "Custo (R$)", "Lucro (R$)", "Margem (%)"];
     const rows = culturaRows.map((r) => [r.cultura, r.qtd, r.rendimento, r.receita.toFixed(2), r.custo.toFixed(2), r.lucro.toFixed(2), r.margem.toFixed(1)]);
-    const csv = "\uFEFF" + [heads, ...rows].map((l) => l.join(";")).join("\n");
+    const csv = "\uFEFF" + [heads, ...rows].map((line) => line.map(csvCell).join(";")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -133,6 +142,7 @@ function RelatoriosContent() {
               <li key={l.lote} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="min-w-0 max-w-full truncate font-medium text-stone-700">{l.lote}</span>
                 <span className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="text-stone-400">área {formatAreaM2({ area_m2: l.area_m2 })}</span>
                   <span className="text-stone-400">custo <Money value={l.custo} /></span>
                   <span className="text-stone-400">receita <Money value={l.receita} /></span>
                   <span className={`font-semibold ${l.lucro >= 0 ? "text-green-700" : "text-red-600"}`}>

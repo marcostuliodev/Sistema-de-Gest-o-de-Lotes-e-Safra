@@ -53,6 +53,7 @@ export default function Clima() {
   return (
     <PlanGate
       feature="climaAlertas"
+      permission="weather.read"
       blockedTitle="Clima & Alertas"
       blockedDescription="Faça upgrade para o plano Básico ou superior para acompanhar o clima e receber alertas na sua propriedade."
     >

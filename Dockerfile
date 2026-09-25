@@ -1,5 +1,5 @@
-# O mesmo sistema em container Docker (alt. para Render runtime Docker, VPS, Oracle free tier, etc.)
-# Banco PostgreSQL (via DATABASE_URL). Node >= 22.
+# O mesmo sistema em container Docker (alt. para VPS ou outro runtime).
+# Banco MongoDB (via MONGODB_URI). Node >= 22.
 FROM node:22-alpine
 
 WORKDIR /app

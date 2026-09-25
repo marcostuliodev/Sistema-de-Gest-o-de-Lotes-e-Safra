@@ -1,5 +1,9 @@
 import webpush from "web-push";
-import { db } from "./db.js";
+import dns from "node:dns/promises";
+import dnsCallback from "node:dns";
+import https from "node:https";
+import net from "node:net";
+import { col } from "./db.js";
 
 const MAILTO = process.env.VAPID_MAILTO || "mailto:noreply@agrolote.app";
 
@@ -7,24 +11,22 @@ let initialized = false;
 
 async function ensureVapid() {
   if (initialized) return;
-  let pub = await db.prepare("SELECT value FROM kv WHERE key = ?").get("vapid_public");
-  let priv = await db.prepare("SELECT value FROM kv WHERE key = ?").get("vapid_private");
-  if (!pub || !priv) {
-    const keys = webpush.generateVAPIDKeys();
-    pub = { value: keys.publicKey };
-    priv = { value: keys.privateKey };
-    await db.prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = ?").run(
-      "vapid_public",
-      keys.publicKey,
-      keys.publicKey
+  const kv = await col("kv");
+  let pair = await kv.findOne({ key: "vapid_key_pair" });
+  if (!pair?.public_key || !pair?.private_key) {
+    const legacyPublic = await kv.findOne({ key: "vapid_public" });
+    const legacyPrivate = await kv.findOne({ key: "vapid_private" });
+    const generated = legacyPublic?.value && legacyPrivate?.value
+      ? { publicKey: legacyPublic.value, privateKey: legacyPrivate.value }
+      : webpush.generateVAPIDKeys();
+    const result = await kv.findOneAndUpdate(
+      { key: "vapid_key_pair" },
+      { $setOnInsert: { key: "vapid_key_pair", public_key: generated.publicKey, private_key: generated.privateKey, created_at: new Date().toISOString() } },
+      { upsert: true, returnDocument: "after" },
     );
-    await db.prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = ?").run(
-      "vapid_private",
-      keys.privateKey,
-      keys.privateKey
-    );
+    pair = result?.value || result;
   }
-  webpush.setVapidDetails(MAILTO, pub.value, priv.value);
+  webpush.setVapidDetails(MAILTO, pair.public_key, pair.private_key);
   initialized = true;
 }
 
@@ -77,40 +79,79 @@ function isBlockedHostname(hostnameRaw) {
   return false;
 }
 
-export function isValidPushEndpoint(raw) {
-  if (typeof raw !== "string" || !raw || raw.length > 4096) return false;
+const safePushAgent = new https.Agent({
+  lookup(hostname, options, callback) {
+    dnsCallback.lookup(hostname, options, (error, address, family) => {
+      if (error) return callback(error);
+      const addresses = Array.isArray(address) ? address.map((item) => item.address) : [address];
+      if (addresses.some((item) => isBlockedHostname(item))) {
+        return callback(new Error("Push endpoint resolveu para endereço privado"));
+      }
+      callback(null, address, family);
+    });
+  },
+});
+
+export async function isValidPushEndpoint(raw) {
+  if (typeof raw !== "string" || !raw || raw.length > 4096) return "invalid";
   let url;
   try {
     url = new URL(raw);
   } catch {
-    return false;
+    return "invalid";
   }
-  if (url.protocol !== "https:") return false;
-  if (url.username || url.password) return false;
-  if (isBlockedHostname(url.hostname)) return false;
-  return true;
+  if (url.protocol !== "https:") return "invalid";
+  if (url.username || url.password) return "invalid";
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (isBlockedHostname(hostname)) return "invalid";
+  if (net.isIP(hostname)) return "valid";
+
+  // A validação textual não basta: um hostname público pode resolver para
+  // RFC1918/loopback (DNS rebinding). Resolve todas as respostas e recusa
+  // qualquer endereço privado antes de=web-push abrir a conexão.
+  try {
+    const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    return addresses.length > 0 && addresses.every(({ address }) => !isBlockedHostname(address)) ? "valid" : "invalid";
+  } catch {
+    return "retry";
+  }
 }
 
 export async function getVapidPublic() {
   await ensureVapid();
-  const row = await db.prepare("SELECT value FROM kv WHERE key = ?").get("vapid_public");
-  return row?.value;
+  const row = await (await col("kv")).findOne({ key: "vapid_key_pair" });
+  return row?.public_key;
 }
 
-// Envia uma notificação. Retorna true em sucesso, false se a inscrição
-// expirou/está inválida (deve ser removida).
+const PUSH_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error("Push timeout"), { code: "PUSH_TIMEOUT" })), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Envia uma notificação. Retorna "sent", "invalid" ou "retry".
+// "retry" mantém a inscrição para o próximo ciclo, mas não conta como entrega.
 export async function sendPush(subscription, payload) {
   // Guarda extra anti-SSRF: nunca fazer request para endpoint não-https/público
   // (ex.: inscrições antigas gravadas antes da validação em subscribe).
-  if (!isValidPushEndpoint(subscription?.endpoint)) {
-    console.warn("[push] Endpoint inválido/bloqueado — inscrição será removida.");
-    return false;
-  }
+  const endpointValidation = await isValidPushEndpoint(subscription?.endpoint);
+  if (endpointValidation === "invalid") {
+     console.warn("[push] Endpoint inválido/bloqueado — inscrição será removida.");
+     return "invalid";
+   }
+  if (endpointValidation === "retry") return "retry";
   await ensureVapid();
   try {
-    await webpush.sendNotification(subscription, JSON.stringify(payload));
-    return true;
-  } catch (err) {
+     await withTimeout(
+       webpush.sendNotification(subscription, JSON.stringify(payload), { agent: safePushAgent }),
+       PUSH_TIMEOUT_MS,
+     );
+     return "sent";
+   } catch (err) {
     const code = err.statusCode;
     // 404/410: inscrição inexistente/expirada.
     // 401/403: falha de autenticação VAPID — a inscrição está quebrada (as
@@ -120,11 +161,11 @@ export async function sendPush(subscription, payload) {
     // recebia a notificação.
     if (code === 404 || code === 410 || code === 401 || code === 403) {
       console.warn(`[push] Inscrição inválida (HTTP ${code}) — será removida. Se persistir, o usuário precisa reativar o push no app.`);
-      return false;
+       return "invalid";
     }
     // 429/5xx/erro de rede: transitório, mantém a inscrição para retry no
     // próximo ciclo, mas NÃO conta como entregue.
     console.error(`[push] Falha transitória ao enviar push (HTTP ${code || "?"}):`, err.message);
-    return true;
-  }
-}
+     return "retry";
+   }
+ }

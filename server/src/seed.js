@@ -12,9 +12,9 @@ export async function seed() {
   const addDays = (days) => iso(new Date(Date.now() + days * 864e5));
 
   const lotes = [
-    { _id: uuid(), id: uuid(), nome: "Talhão Norte", tipo: "talhao", area: 1200, localizacao: "Setor 1" },
-    { _id: uuid(), id: uuid(), nome: "Estufa Principal", tipo: "bancada", area: 340, localizacao: "Ao lado do galpão" },
-    { _id: uuid(), id: uuid(), nome: "Horta Sul", tipo: "talhao", area: 800, localizacao: "Margem do riacho" },
+    { _id: uuid(), id: uuid(), nome: "Talhão Norte", tipo: "talhao", area_m2: 1200, area: 1200, localizacao: "Setor 1" },
+    { _id: uuid(), id: uuid(), nome: "Estufa Principal", tipo: "bancada", area_m2: 340, area: 340, localizacao: "Ao lado do galpão" },
+    { _id: uuid(), id: uuid(), nome: "Horta Sul", tipo: "talhao", area_m2: 800, area: 800, localizacao: "Margem do riacho" },
   ];
 
   const insumos = [
@@ -27,7 +27,7 @@ export async function seed() {
 
   const seedLote = async (l) => {
     const c = await col("lotes");
-    await c.insertOne({ _id: l._id, id: l.id, user_id: uid, nome: l.nome, tipo: l.tipo, area: l.area, localizacao: l.localizacao });
+    await c.insertOne({ _id: l._id, id: l.id, user_id: uid, nome: l.nome, tipo: l.tipo, area_m2: l.area_m2, area: l.area_m2, localizacao: l.localizacao });
   };
 
   const seedInsumo = async (i) => {

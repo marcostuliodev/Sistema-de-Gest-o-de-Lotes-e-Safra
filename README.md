@@ -35,7 +35,7 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 | **Headers de segurança ausentes** | ✅ Completos | **Helmet** com: HSTS (1 ano + preload), CSP strict (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `COOP`, `CORP`, `hidePoweredBy` |
 | **CORS aberto (`*`)** | ✅ Restrito | Apenas `https://agrolote.onrender.com` em produção; credenciais permitidas |
 | **DoS via payload gigante (sync)** | ✅ Limitado | `express.json({ limit: "256kb" })` + **máx 100 ops** por request de sync |
-| **SQL Injection** | ✅ Prevenido | **Prepared statements** (`pg`, parâmetros `$1,$2…`) + validação Zod antes de tocar no DB |
+| **SQL Injection** | ✅ Não aplicável | O runtime usa exclusivamente o driver MongoDB; validação Zod antes de persistir |
 | **Vazamento de erro interno** | ✅ Genérico | Em produção: `"Sincronização falhou"` sem stack trace; dev vê mensagem real |
 | **Path traversal** | ✅ Não explorável | SPA fallback só serve `index.html`; arquivos estáticos com `express.static` seguro |
 
@@ -61,8 +61,8 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 │  VALIDAÇÃO ZOD (por entidade)                               │
 │  - tipos, ranges, formatos, sanitização XSS no output       │
 ├─────────────────────────────────────────────────────────────┤
-│  PREPARED STATEMENTS (pg / PostgreSQL)                      │
-│  - zero concatenação de SQL                                 │
+ │  BANCO MONGODB                                              │
+ │  - driver oficial + filtros por projeto                     │
 ├─────────────────────────────────────────────────────────────┤
 │  SANITIZAÇÃO DE SAÍDA                                       │
 │  - strip HTML chars em todo JSON retornado ao cliente       │
@@ -77,7 +77,7 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 |--------|------------|--------|
 | **Runtime** | Node.js | ≥ 22 (LTS) |
 | **API** | Express | 4.21 |
-| **Banco** | PostgreSQL | Render Postgres (free) via `DATABASE_URL` — persistente |
+| **Banco** | MongoDB | MongoDB Atlas/cluster persistente via `MONGODB_URI` |
 | **Auth** | JWT (HS256) + bcryptjs | 9.0 / 2.4 |
 | **Validação** | Zod | 3.25 |
 | **Segurança** | Helmet, express-rate-limit | 8.3 / 8.6 |
@@ -108,8 +108,9 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 │   │   │   ├── sync.js     # Sync offline-first (ops + snapshot)
 │   │   │   └── reports.js  # Dashboard + Performance
 │   │   ├── auth.js         # JWT sign/verify + middleware
-│   │   ├── db.js           # SQLite schema + migrate
-│   │   ├── validation.js   # Zod schemas + sanitizeText
+ │   │   ├── db.js           # MongoDB connection + indexes
+ │   │   ├── authz.js        # projetos, papéis e permissões
+ │   │   ├── validation.js   # Zod schemas + sanitizeText
 │   │   ├── index.js        # App entry + helmet/cors/ratelimit
 │   │   └── seed.js         # Dados demo
 │   └── package.json
@@ -136,17 +137,17 @@ git push -u origin master
 
 ### 2. No Render Dashboard
 - **New → Blueprint** → conecte o repositório → **Apply**
-- O `render.yaml` cria:
-  - **Web Service** (`agrolote`) — Docker, plano Free, região Virginia
-  - **Health Check** em `/api/health`
-  - **Auto-deploy** a cada push no `master`
-  - **Env vars**: `NODE_ENV=production`, `SEED_DEMO=true`, `JWT_SECRET` (gerado automaticamente)
+- O `render.yaml` cria o serviço web e um cron job para alertas climáticos; configure `MONGODB_URI` no secret do serviço
+- Defina o mesmo valor de `CRON_KEY` no serviço web e no cron job; o job chama `/api/cron/weather` a cada 15 minutos
+- O cluster MongoDB deve ser persistente (Atlas ou outro serviço MongoDB)
+- **Health Check** em `/api/health`
+- **Auto-deploy** a cada push no `master`
 
 ### 3. Acesso
 - URL: `https://agrolote.onrender.com`
 - Demo: `demo@agrolote.app` / `demo123` (auto-seed no primeiro boot)
 
-> **Nota:** O plano Free do Render usa disco efêmero — o banco SQLite é recriado a cada deploy. A conta demo é re-semeada automaticamente via `SEED_DEMO=true`. Usuários reais devem fazer sync (push) após cada novo deploy para restaurar seus dados locais.
+> **Nota:** O plano Free do Render usa disco efêmero; por isso o servidor exige `MONGODB_URI` apontando para um cluster persistente. O IndexedDB continua sendo cache/offline local por usuário e projeto.
 
 ---
 
@@ -175,15 +176,13 @@ PORT=4000
 JWT_SECRET=seu-secret-super-seguro-aqui
 JWT_TTL=7d
 SEED_DEMO=true
-# OBRIGATÓRIO — aponte para um PostgreSQL (local ou Render).
-# Ex.: Docker local -> postgres://postgres:postgres@localhost:5432/agrolote
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/agrolote
+# OBRIGATÓRIO — URI de um cluster MongoDB persistente.
+# Ex.: mongodb+srv://usuario:senha@cluster.mongodb.net/agrolote?retryWrites=true&w=majority
+MONGODB_URI=mongodb://127.0.0.1:27017
+MONGODB_DB=agrolote
 ```
 
-> ⚠️ O banco é **PostgreSQL** (não mais SQLite). Em produção o Render cria o
-> banco automaticamente via `render.yaml`. Para desenvolvimento local, suba um
-> Postgres (ex.: `docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres`)
-> e defina `DATABASE_URL`.
+> O runtime usa exclusivamente MongoDB. `DATABASE_URL` não é mais lido. Use um replica set/cluster com transações habilitadas para exclusões.
 
 ---
 
@@ -194,10 +193,10 @@ Base: `https://agrolote.onrender.com/api`
 ### Auth
 | Método | Rota | Body | Resp |
 |--------|------|------|------|
-| `POST` | `/auth/register` | `{name, email, password}` | `{user, token}` |
-| `POST` | `/auth/login` | `{email, password}` | `{user, token}` |
+| `POST` | `/auth/register` | `{name, email, password}` | `{user}` |
+| `POST` | `/auth/login` | `{email, password}` | `{user}` + cookie HttpOnly |
 
-### CRUD (todas exigem `Authorization: Bearer <token>`)
+### CRUD (todas usam cookie HttpOnly + `X-Project-Id` para o projeto ativo)
 | Entidade | Listar | Criar | Atualizar | Deletar |
 |----------|--------|-------|-----------|---------|
 | Lotes | `GET /lotes` | `POST /lotes` | `PUT /lotes/:id` | `DELETE /lotes/:id` |
@@ -212,7 +211,7 @@ POST /api/lotes
 {
   "nome": "Talhão 1",
   "tipo": "talhao",
-  "area": 1500,
+  "area_m2": 1500,
   "localizacao": "Setor A"
 }
 ```
@@ -226,7 +225,8 @@ POST /api/lotes
 ### Sync Offline-First
 ```http
 POST /api/sync
-Authorization: Bearer <token>
+Cookie: agrolote_token=<cookie HttpOnly>
+X-Project-Id: <projectId>
 Content-Type: application/json
 
 {
@@ -234,7 +234,7 @@ Content-Type: application/json
     { "entity": "lotes", "action": "upsert", "data": { "id": "uuid-v4", "nome": "Novo", "tipo": "talhao" } },
     { "entity": "plantios", "action": "delete", "data": { "id": "uuid-existente" } }
   ],
-  "clientLastSync": "2026-08-12T20:00:00.000Z"
+  "tombstoneCursor": { "updatedAt": "2026-08-12T20:00:00.000Z", "id": null }
 }
 ```
 
@@ -242,7 +242,11 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
+  "projectId": "project-uuid",
   "snapshot": { "lotes": [...], "plantios": [...], "insumos": [...], "gastos": [...], "colheitas": [...] },
+  "tombstones": [],
+  "tombstoneCursor": { "updatedAt": "2026-08-12T20:45:02.499Z" },
+  "tombstoneHasMore": false,
   "serverTime": "2026-08-12T20:45:02.499Z"
 }
 ```
@@ -250,7 +254,8 @@ Content-Type: application/json
 - **Máx 100 ops** por request (400 se exceder)
 - `action`: `"upsert"` (padrão) | `"delete"`
 - IDs são **UUIDs v4 gerados no cliente** — sem conflito em sincronização multi-dispositivo
-- `ensureUser()` recria o usuário no server se o banco foi limpo (disco efêmero) — token continua válido
+- `tombstoneCursor` permite paginar exclusões sem depender de uma janela fixa
+- O servidor rejeita reutilização de ID excluído com `TOMBSTONE_CONFLICT`
 
 ### Health
 ```http
@@ -277,7 +282,11 @@ GET /api/health
 | `NODE_ENV` | Sim | `production` |
 | `JWT_SECRET` | **Sim** | 64+ chars aleatórios (Render gera auto no Blueprint) |
 | `JWT_TTL` | Não | Ex: `7d` (padrão) |
-| `SEED_DEMO` | Não | `true` recria demo a cada boot (útil no free tier) |
+| `MONGODB_URI` | **Sim** | URI do cluster MongoDB persistente |
+| `MONGODB_DB` | Não | Nome do banco; padrão `agrolote` |
+| `MAX_PROJECTS_PER_OWNER` | Não | Limite de projetos por conta; padrão `20` |
+| `LICENSE_PRIVATE_KEY` / `LICENSE_PUBLIC_KEY` | Não | Opcional; sem elas o par é persistido em `kv.license_key_pair` no MongoDB |
+| `SEED_DEMO` | Não | `false` em produção; use somente em desenvolvimento |
 | `PORT` | Não | Render injeta automaticamente |
 
 > **Nunca** commite `.env` ou segredos. O `render.yaml` usa `generateValue: true` para `JWT_SECRET`.
@@ -290,12 +299,12 @@ GET /api/health
 # 1. Rate limit login (deve retornar 429 após ~8 tentativas)
 for i in {1..15}; do curl -s -o /dev/null -w "%{http_code}\n" -X POST https://agrolote.onrender.com/api/auth/login -H "Content-Type: application/json" -d '{"email":"demo@agrolote.app","password":"wrong'$i'"}'; done
 
-# 2. XSS no nome (deve retornar sanitizado)
-curl -X POST https://agrolote.onrender.com/api/lotes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"nome":"<script>alert(1)</script>","tipo":"talhao","area":100}'
-curl -H "Authorization: Bearer $TOKEN" https://agrolote.onrender.com/api/lotes | grep script
+# 2. XSS no nome (deve retornar sanitizado); use o cookie da sessão e o projeto ativo
+curl -X POST https://agrolote.onrender.com/api/lotes -b "$COOKIE_JAR" -H "X-Project-Id: $PROJECT_ID" -H "Content-Type: application/json" -d '{"nome":"<script>alert(1)</script>","tipo":"talhao","area_m2":100}'
+curl -b "$COOKIE_JAR" -H "X-Project-Id: $PROJECT_ID" https://agrolote.onrender.com/api/lotes | grep script
 
 # 3. JWT alg=none (deve 401)
-curl -X POST https://agrolote.onrender.com/api/sync -H "Authorization: Bearer eyJhbGciOiJub25lIn0.eyJ1aWQiOjk5OTk5LCJlbWFpbCI6ImhheEB4LmNvbSJ9." -H "Content-Type: application/json" -d '{"ops":[]}'
+curl -X POST https://agrolote.onrender.com/api/sync -H "Cookie: agrolote_token=eyJhbGciOiJub25lIn0.eyJ1aWQiOjk5OTk5LCJlbWFpbCI6ImhheEB4LmNvbSJ9." -H "X-Project-Id: $PROJECT_ID" -H "Content-Type: application/json" -d '{"ops":[]}'
 
 # 4. Headers de segurança
 curl -I https://agrolote.onrender.com/ | grep -iE "strict-transport|content-security|x-frame|x-content|referrer|coop|corp"
@@ -320,7 +329,7 @@ cd client
 npm run dev      # Vite dev server
 npm run build    # build produção (client/dist)
 npm run preview  # serve build local
-npm run lint     # ESLint
+npm run build    # build + verificação TypeScript
 ```
 
 ---
@@ -338,8 +347,8 @@ npm run lint     # ESLint
 
 | Limitação | Mitigação / Roadmap |
 |-----------|---------------------|
-| **Disco efêmero no Render Free** | Sync push/restore resolve; migração para PostgreSQL persistente no plano pago |
-| **Single-node (sem HA)** | Arquitetura stateless + SQLite — escalável com volume persistente + Redis para rate-limit distribuído |
+| **Disco efêmero no Render Free** | MongoDB externo persistente via `MONGODB_URI`; IndexedDB é apenas cache/offline |
+| **Single-node (sem HA)** | API stateless + MongoDB persistente; rate-limit pode evoluir para store distribuído |
 | **Sem MFA/2FA** | Roadmap: WebAuthn + TOTP |
 | **Logs apenas stdout** | Roadmap: integração Loki/Grafana ou Datadog |
 
@@ -354,7 +363,8 @@ MIT — use livremente, inclusive comercialmente. Veja `LICENSE`.
 ## 🙏 Agradecimentos
 
 - **Render** — free tier generoso para projetos open-source
-- **Node.js** — `node:sqlite` nativo eliminou `better-sqlite3` + build nativo
+- **Node.js** — runtime do servidor Express e build da PWA
+- **MongoDB** — fonte autoritativa persistente via driver oficial
 - **Dexie.js** — IndexedDB agradável
 - **Zod** — validação TypeScript-first
 - **Helmet** — headers de segurança em 3 linhas

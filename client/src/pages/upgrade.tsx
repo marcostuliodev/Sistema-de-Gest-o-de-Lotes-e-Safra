@@ -3,7 +3,7 @@
  * Mostra todos os planos, trial e assinatura atual.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePlan } from "../store/plan";
 import { Button, Card, Badge } from "../components/ui";
@@ -18,10 +18,11 @@ const PLANS = [
     features: [
       "5 lotes",
       "15 plantios",
-      "30 análises de IA/dia",
-      "Relatórios avançados",
-    ],
-    notIncluded: ["Clima & Alertas"],
+       "30 análises de IA/dia",
+       "Relatórios avançados",
+       "Clima & Alertas",
+     ],
+     notIncluded: [],
   },
   {
     id: "pro",
@@ -31,10 +32,11 @@ const PLANS = [
     features: [
       "20 lotes",
       "50 plantios",
-      "120 análises de IA/dia",
-      "Relatórios avançados",
-    ],
-    notIncluded: ["Clima & Alertas"],
+       "120 análises de IA/dia",
+       "Relatórios avançados",
+       "Clima & Alertas",
+     ],
+     notIncluded: [],
   },
   {
     id: "premium",
@@ -57,8 +59,8 @@ const PLAN_ORDER = ["free", "basico", "pro", "premium"];
 export default function Upgrade() {
   const {
     plan: currentPlan, status, trialEnd, trialRemaining, startTrial, openCheckout,
-    isCollaborator, ownerName, loading, cancelAtPeriodEnd, currentPeriodEnd, openPortal,
-  } = usePlan();
+     isCollaborator, ownerName, loading, cancelAtPeriodEnd, currentPeriodEnd, openPortal, refresh,
+   } = usePlan();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
@@ -66,9 +68,22 @@ export default function Upgrade() {
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
-  const fromPortal = searchParams.get("portal");
+   const fromPortal = searchParams.get("portal");
 
-  // Aguarda o fetch da licença antes de decidir (evita flash de UI de dono)
+   useEffect(() => {
+     if (success !== "1") return;
+     let attempts = 0;
+     let timer = 0;
+     const poll = () => {
+       attempts += 1;
+       void refresh();
+       if (attempts < 30) timer = window.setTimeout(poll, 2000);
+     };
+     timer = window.setTimeout(poll, 500);
+     return () => window.clearTimeout(timer);
+   }, [success, refresh]);
+
+   // Aguarda o fetch da licença antes de decidir (evita flash de UI de dono)
   if (loading) {
     return (
       <div className="space-y-4">
@@ -164,7 +179,7 @@ export default function Upgrade() {
       </div>
 
       {/* Status atual */}
-      {currentPlan !== "free" && (
+      {(currentPlan !== "free" || ["unpaid", "incomplete", "incomplete_expired", "paused"].includes(status)) && (
         <Card className="bg-gradient-to-r from-green-50 to-emerald-50">
           <div className="flex items-center justify-between">
             <div>
@@ -182,17 +197,22 @@ export default function Upgrade() {
                   Renova em: {formatPeriodEnd(currentPeriodEnd)}
                 </p>
               )}
-              {status === "past_due" && (
-                <p className="text-sm font-medium text-red-600">
-                  Pagamento pendente — atualize seu cartão.
-                </p>
-              )}
+               {status === "past_due" && (
+                 <p className="text-sm font-medium text-red-600">
+                   Pagamento pendente — atualize seu cartão.
+                 </p>
+               )}
+               {status === "unpaid" && (
+                 <p className="text-sm font-medium text-red-600">
+                   Assinatura suspensa por falta de pagamento.
+                 </p>
+               )}
             </div>
             <div className="text-right">
               <div className="mb-2 text-3xl">
                 <Leaf />
               </div>
-              {(status === "active" || status === "past_due") && !isCollaborator && (
+               {(status === "active" || status === "past_due" || ["unpaid", "incomplete", "incomplete_expired", "paused"].includes(status)) && !isCollaborator && (
                 <Button
                   variant="subtle"
                   className="!text-xs !text-red-600 hover:!bg-red-50"

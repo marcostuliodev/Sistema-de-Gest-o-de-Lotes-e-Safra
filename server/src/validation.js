@@ -31,6 +31,8 @@ export const uuidSchema = z
   .max(STRING_ID_MAX)
   .regex(/^[A-Za-z0-9_-]{1,100}$/, { message: "id invalido" });
 
+const entityId = z.union([uuidSchema, z.number().int().nonnegative()]).transform((value) => String(value));
+
 const optionalText = z
   .string()
   .trim()
@@ -71,16 +73,67 @@ const requiredDateStr = z
 
 const dateStr = requiredDateStr.nullish();
 
-export const lotesSchema = z.object({
-  id: uuidSchema.optional(),
+const areaM2Value = z.number().finite().min(0);
+const areaAliasValue = areaM2Value.nullish();
+
+function preprocessAreaAlias(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  if (raw.area_m2 === undefined && raw.area !== undefined) {
+    return { ...raw, area_m2: raw.area };
+  }
+  return raw;
+}
+
+function validateAreaPair(value, ctx) {
+  const canonical = value.area_m2;
+  const legacy = value.area;
+  if (canonical !== undefined && canonical !== null && legacy !== undefined && legacy !== null && canonical !== legacy) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["area_m2"],
+      message: "area_m2 e area devem representar o mesmo valor em m²",
+    });
+  }
+}
+
+function transformLote(value, defaultArea) {
+  const hasArea = Object.hasOwn(value, "area_m2") || Object.hasOwn(value, "area");
+  const { area, area_m2: areaM2, ...rest } = value;
+  if (!hasArea) return defaultArea ? { ...rest, area_m2: 0, area: 0 } : rest;
+  const numericArea = areaM2 !== undefined ? areaM2 : area !== undefined ? area : null;
+  return { ...rest, area_m2: numericArea, area: numericArea };
+}
+
+const lotesBaseSchema = z.object({
+  id: entityId.optional(),
   nome: z.string().trim().min(1).max(TEXT_MAX),
   tipo: z.string().trim().max(50).default("talhao"),
-  area: openRangeOrZero(),
+  area_m2: areaAliasValue,
+  area: areaAliasValue,
   localizacao: optionalText,
 });
 
+const lotesPatchBaseSchema = z.object({
+  id: entityId.optional(),
+  nome: z.string().trim().min(1).max(TEXT_MAX).optional(),
+  tipo: z.string().trim().max(50).optional(),
+  area_m2: areaAliasValue.optional(),
+  area: areaAliasValue.optional(),
+  localizacao: optionalText,
+});
+
+export const lotesSchema = z.preprocess(
+  preprocessAreaAlias,
+  lotesBaseSchema.superRefine(validateAreaPair).transform((value) => transformLote(value, true))
+);
+
+const lotesPatchSchema = z.preprocess(
+  preprocessAreaAlias,
+  lotesPatchBaseSchema.superRefine(validateAreaPair).transform((value) => transformLote(value, false))
+);
+
 export const plantiosSchema = z.object({
-  id: uuidSchema.optional(),
+  id: entityId.optional(),
   lote_id: uuidSchema,
   cultura: z.string().trim().min(1).max(TEXT_MAX),
   cultivar: optionalText,
@@ -92,14 +145,14 @@ export const plantiosSchema = z.object({
 });
 
 export const insumosSchema = z.object({
-  id: uuidSchema.optional(),
+  id: entityId.optional(),
   nome: z.string().trim().min(1).max(TEXT_MAX),
   categoria: optionalText,
   unidade: z.string().trim().max(20).default("un"),
 });
 
 export const gastosSchema = z.object({
-  id: uuidSchema.optional(),
+  id: entityId.optional(),
   plantio_id: uuidSchema,
   insumo_id: uuidSchema.nullish(),
   descricao: optionalText,
@@ -109,7 +162,7 @@ export const gastosSchema = z.object({
 });
 
 export const colheitasSchema = z.object({
-  id: uuidSchema.optional(),
+  id: entityId.optional(),
   plantio_id: uuidSchema,
   data: requiredDateStr,
   quantidade: optionalNonNeg,
@@ -131,11 +184,16 @@ export function parseEntity(entity, raw) {
   return schema.parse(raw);
 }
 
-/** Valida somente campos enviados em uma atualização parcial. */
 export function parseEntityPatch(entity, raw) {
   const schema = entitySchemas[entity];
   if (!schema) throw new Error("entidade desconhecida");
+  if (entity === "lotes") return lotesPatchSchema.parse(raw);
   return schema.partial().parse(raw);
+}
+
+export function parseEntityId(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+  return uuidSchema.parse(value);
 }
 
 const HTML_CHARS = /[<>"'`]/g;
@@ -155,10 +213,17 @@ export function escapeRegExp(s) {
 
 export function sanitizeRow(row) {
   if (!row || typeof row !== "object") return row;
-  const out = Array.isArray(row) ? [] : {};
+  const out = Array.isArray(row) ? [] : Object.create(null);
   for (const k of Object.keys(row)) {
     const v = row[k];
     out[k] = typeof v === "string" ? sanitizeText(v) : v;
+  }
+  if (!Array.isArray(row) && (Object.hasOwn(out, "area_m2") || Object.hasOwn(out, "area"))) {
+    const value = Object.hasOwn(out, "area_m2") ? out.area_m2 : out.area;
+    if ((typeof value === "number" && Number.isFinite(value)) || value === null) {
+      out.area_m2 = value;
+      out.area = value;
+    }
   }
   return out;
 }

@@ -12,7 +12,7 @@ const PLANS = [
     label: "Básico",
     price: "R$ 49,90",
     annualPrice: "R$ 39,90",
-    features: ["5 lotes", "15 plantios", "Relatórios avançados"],
+     features: ["5 lotes", "15 plantios", "Relatórios avançados", "Clima & Alertas"],
     color: "green",
   },
   {
@@ -20,7 +20,7 @@ const PLANS = [
     label: "Pro",
     price: "R$ 149,90",
     annualPrice: "R$ 119,90",
-    features: ["20 lotes", "50 plantios", "Relatórios avançados"],
+     features: ["20 lotes", "50 plantios", "Relatórios avançados", "Clima & Alertas"],
     color: "blue",
   },
   {

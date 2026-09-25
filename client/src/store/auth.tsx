@@ -1,18 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { getSession, login, register, setSession, logout, resendVerification, type AuthSession } from "../db/api";
-import { db } from "../db/db";
-import { pullServer, runSync } from "../db/sync";
-
-const LAST_USER_KEY = "agrolote_last_user";
-
-/** Registra a última conta usada neste aparelho.
- *  IMPORTANTE: não apagamos mais o banco local ao trocar de conta. O app é
- *  offline-first e os dados vivem no dispositivo; o sync reenvia tudo para a
- *  conta logada. Apagar causaria perda de dados do produtor (ex.: após o banco
- *  do servidor ser recriado e o usuário registrar uma conta nova). */
-async function prepareFreshStore(userId: number) {
-  localStorage.setItem(LAST_USER_KEY, String(userId));
-}
+import { getActiveScope, setActiveScope, waitForActiveScope } from "../db/db";
+import { outboxCount } from "../db/sync";
+import { unsubscribePush } from "../lib/push";
 
 interface AuthCtx {
   session: AuthSession | null;
@@ -21,39 +11,75 @@ interface AuthCtx {
   syncError: string | null;
   login: (email: string, pass: string) => Promise<void>;
   register: (name: string, email: string, pass: string) => Promise<AuthSession>;
-  logout: () => void;
+  logout: () => Promise<void>;
   resendVerification: (email: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSessionState] = useState<AuthSession | null>(getSession());
+  const [session, setSessionState] = useState<AuthSession | null>(getSession);
   const [pendingSync, setPendingSync] = useState(0);
-  const [online, setOnline] = useState(navigator.onLine);
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-const refreshOutbox = useCallback(() => {
-    db.outbox.count().then(setPendingSync).catch(() => setPendingSync(0));
+  const refreshOutbox = useCallback(() => {
+    const scope = getActiveScope();
+    if (!scope) {
+      setPendingSync(0);
+      return;
+    }
+    const session = getSession();
+    const accountId = String(session?.user.user_key || session?.user.id || "");
+    if (!session || accountId !== scope.accountId) {
+      setPendingSync(0);
+      return;
+    }
+    outboxCount().then((count) => {
+      const current = getActiveScope();
+      if (current && current.userId === scope.userId && current.projectId === scope.projectId) {
+        setPendingSync(count);
+      }
+    }).catch(() => {
+      if (getActiveScope()?.projectId === scope.projectId) setPendingSync(0);
+    });
+  }, []);
+
+  const leaveSession = useCallback(() => {
+    void unsubscribePush().catch(() => undefined);
+    void fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
+    setSession(null);
+    setSessionState(null);
+    void setActiveScope(null);
   }, []);
 
   useEffect(() => {
-    const onOnline = () => { setOnline(true); };
+    const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
-    const onSync = () => {
+    const onSync = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string } | undefined>).detail;
+      if (detail?.projectId && detail.projectId !== getActiveScope()?.projectId) return;
       setSyncError(null);
       refreshOutbox();
     };
-    const onOutboxChange = () => refreshOutbox();
-    const onSyncError = (event: Event) => {
-      setSyncError((event as CustomEvent<string>).detail || "Não foi possível sincronizar agora.");
+    const onOutboxChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string } | undefined>).detail;
+      if (detail?.projectId && detail.projectId !== getActiveScope()?.projectId) return;
+      refreshOutbox();
     };
-    const onLogout = () => setSessionState(null);
-    const onReauthRequired = () => setSessionState(null);
+    const onSyncError = (event: Event) => {
+      const detail = (event as CustomEvent<string | { projectId?: string; message?: string }>).detail;
+      if (typeof detail === "object" && detail.projectId && detail.projectId !== getActiveScope()?.projectId) return;
+      setSyncError(typeof detail === "object" ? detail.message || "Não foi possível sincronizar agora." : detail || "Não foi possível sincronizar agora.");
+    };
+    const onLogout = () => leaveSession();
+    const onReauthRequired = () => leaveSession();
+    const onScopeChange = () => refreshOutbox();
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     window.addEventListener("agrolote:synced", onSync);
     window.addEventListener("agrolote:outbox-change", onOutboxChange);
+    window.addEventListener("agrolote:scope-change", onScopeChange);
     window.addEventListener("agrolote:logout", onLogout);
     window.addEventListener("agrolote:reauth-required", onReauthRequired);
     window.addEventListener("agrolote:sync-error", onSyncError);
@@ -64,46 +90,56 @@ const refreshOutbox = useCallback(() => {
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("agrolote:synced", onSync);
       window.removeEventListener("agrolote:outbox-change", onOutboxChange);
+      window.removeEventListener("agrolote:scope-change", onScopeChange);
       window.removeEventListener("agrolote:logout", onLogout);
       window.removeEventListener("agrolote:reauth-required", onReauthRequired);
       window.removeEventListener("agrolote:sync-error", onSyncError);
       clearInterval(outboxInterval);
     };
-  }, [refreshOutbox]);
+  }, [leaveSession, refreshOutbox]);
 
   const doLogin = async (email: string, pass: string) => {
-    const s = await login(email, pass);
+    const loggedSession = await login(email, pass);
     setSyncError(null);
-    setSessionState(s);
-    void prepareFreshStore(s.user.id);
-    // A sessão e os dados locais já estão prontos; não bloqueia o login
-    // aguardando o snapshot remoto. Depois do pull, envia imediatamente
-    // qualquer operação que ficou pendente enquanto o cookie expirava.
-    void pullServer().then(() => runSync());
-  };
-  // Register NÃO cria sessão (sem cookie no body) — o fluxo de UI de cadastro
-  // é login.tsx, que mostra a tela genérica e manda o usuário logar depois.
-  const doRegister = async (name: string, email: string, pass: string): Promise<AuthSession> => {
-    const s = await register(name, email, pass);
-    setSession(null);
-    setSessionState(null);
-    return s;
-  };
-  const doLogout = () => {
-    void logout();
-    setSession(null);
-    setSessionState(null);
-    void db.outbox.clear().then(() => {
-      window.dispatchEvent(new Event("agrolote:outbox-change"));
-    });
+    setSessionState(loggedSession);
+    try {
+      await waitForActiveScope(String(loggedSession.user.id), loggedSession.user.user_key || loggedSession.user.id);
+    } catch (error) {
+      // Login/sessão são válidos; falta apenas o projeto (ex.: primeiro uso offline).
+      // Não apaga a sessão nem os dados locais nesse caso.
+      setSyncError(error instanceof Error ? error.message : "Entre novamente quando o projeto estiver disponível.");
+    }
   };
 
-  const doResendVerification = async (email: string) => {
-    return resendVerification(email);
+  const doRegister = async (name: string, email: string, pass: string): Promise<AuthSession> => {
+    const registeredSession = await register(name, email, pass);
+    setSession(null);
+    setSessionState(null);
+    await setActiveScope(null).catch(() => undefined);
+    return registeredSession;
   };
+
+  const doLogout = async () => {
+    await unsubscribePush().catch(() => undefined);
+    setSession(null);
+    setSessionState(null);
+    await setActiveScope(null).catch(() => undefined);
+    await logout();
+  };
+
+  const doResendVerification = async (email: string) => resendVerification(email);
 
   return (
-      <Ctx.Provider value={{ session, pendingSync, online, syncError, login: doLogin, register: doRegister, logout: doLogout, resendVerification: doResendVerification }}>
+    <Ctx.Provider value={{
+      session,
+      pendingSync,
+      online,
+      syncError,
+      login: doLogin,
+      register: doRegister,
+      logout: doLogout,
+      resendVerification: doResendVerification,
+    }}>
       {children}
     </Ctx.Provider>
   );

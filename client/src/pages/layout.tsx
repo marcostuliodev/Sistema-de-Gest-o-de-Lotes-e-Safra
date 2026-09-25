@@ -1,6 +1,7 @@
 import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
+import { useProject } from "../store/project";
 import { usePlan } from "../store/plan";
 import { CloudCheck, CloudOff, Grid, Leaf, Logout, WifiOff, Users } from "../components/icons";
 import { Badge } from "../components/ui";
@@ -19,6 +20,8 @@ const nav: { to: string; label: string; icon: ReactNode; end?: boolean }[] = [
   { to: "/", label: "Painel", icon: <Grid />, end: true },
   { to: "/plantios", label: "Plantios", icon: <Leaf /> },
   { to: "/lotes", label: "Lotes", icon: <Map /> },
+  { to: "/insumos", label: "Insumos", icon: <Grid /> },
+  { to: "/gastos", label: "Gastos", icon: <Leaf /> },
   { to: "/ia", label: "AgroIA", icon: <Sparkles /> },
   { to: "/clima", label: "Clima", icon: <Cloud /> },
   { to: "/colaboradores", label: "Colab.", icon: <Users /> },
@@ -50,8 +53,16 @@ function Sparkles({}: {}) {
   );
 }
 
+function roleLabel(isOwner: boolean, role: string | null): string {
+  if (isOwner) return "Proprietário";
+  if (role === "admin") return "Administrador";
+  if (role === "viewer") return "Visualizador";
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Sem papel";
+}
+
 export default function Layout() {
   const { session, logout, pendingSync, online, resendVerification, syncError } = useAuth();
+  const { projects, activeProject, switchProject, switching } = useProject();
   const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator, loading: planLoading } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -134,26 +145,46 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Barra superior — hambúrguer do menu da conta (visível em todas as telas) */}
       <header className="flex shrink-0 items-center gap-2 border-b border-stone-200 bg-white px-3 py-2 lg:px-4">
         <HamburgerButton onClick={() => setMenuOpen(true)} />
         <div className="flex items-center gap-2 lg:hidden">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-700 text-white">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-green-700 text-white">
             <Leaf />
           </div>
-          <span className="text-sm font-extrabold text-stone-800">Agrolote</span>
+          <span className="hidden text-sm font-extrabold text-stone-800 sm:inline">Agrolote</span>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {planLoading ? null : isCollaborator ? (
-            <Badge tone="green">Colaborador</Badge>
-          ) : (
-            <>
-              <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
-              {status === "trial" && trialRemaining >= 0 && (
-                <span className="hidden text-xs text-stone-400 sm:inline">Trial {trialRemaining}d</span>
-              )}
-            </>
-          )}
+        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none">
+          <div className="min-w-0 max-w-[10rem] flex-1 sm:w-52 sm:max-w-none sm:flex-none">
+            <label htmlFor="active-project" className="sr-only">Projeto ativo</label>
+            <select
+              id="active-project"
+              value={activeProject?.id || ""}
+              onChange={(event) => void switchProject(event.target.value)}
+              disabled={switching}
+              className="h-9 w-full min-w-0 rounded-lg border border-stone-200 bg-stone-50 px-2 text-xs font-semibold text-stone-700 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100 disabled:opacity-60"
+            >
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name || project.nome} · {roleLabel(project.isOwner, project.role)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-0.5 truncate px-0.5 text-[10px] text-stone-400">
+              {activeProject ? roleLabel(activeProject.isOwner, activeProject.role) : "Carregando..."}
+            </p>
+          </div>
+          <div className="hidden items-center gap-2 sm:flex">
+            {planLoading ? null : isCollaborator ? (
+              <Badge tone="green">Colaborador</Badge>
+            ) : (
+              <>
+                <Badge tone={planBadge.tone}>{planBadge.label}</Badge>
+                {status === "trial" && trialRemaining >= 0 && (
+                  <span className="hidden text-xs text-stone-400 lg:inline">Trial {trialRemaining}d</span>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -221,7 +252,7 @@ export default function Layout() {
               <p className="truncate text-sm font-semibold text-stone-700">{session.user.name}</p>
               <p className="truncate text-xs text-stone-400">{session.user.email}</p>
             </div>
-            <button onClick={logout} title="Sair" className="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600">
+             <button onClick={() => void logout()} title="Sair" className="flex h-11 w-11 items-center justify-center rounded-lg text-stone-400 hover:bg-red-50 hover:text-red-600">
               <Logout />
             </button>
           </div>

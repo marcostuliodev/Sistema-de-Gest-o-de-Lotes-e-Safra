@@ -4,10 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./store/auth";
 import { UpdatePrompt } from "./components/UpdatePrompt";
-import { startSyncWatcher } from "./db/sync";
 import "./index.css";
-
-startSyncWatcher();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Plantio, Lote, Gasto, Colheita } from "../db/types";
+import { areaM2, formatAreaM2 } from "./area";
 
 function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -190,7 +191,7 @@ export function generatePdfReport(
         .map((p) => p.id);
       const custo = pids.reduce((s, pid) => s + custoDe(pid), 0);
       const receita = pids.reduce((s, pid) => s + receitaDe(pid), 0);
-      return { lote: l.nome, custo, receita, lucro: receita - custo };
+      return { lote: l.nome, area_m2: areaM2(l), custo, receita, lucro: receita - custo };
     })
     .sort((a, b) => b.lucro - a.lucro);
 
@@ -208,9 +209,10 @@ export function generatePdfReport(
 
     autoTable(doc, {
       startY: y,
-      head: [["Lote", "Custo", "Receita", "Lucro"]],
+      head: [["Lote", "Área", "Custo", "Receita", "Lucro"]],
       body: perLote.map((l) => [
         l.lote,
+        formatAreaM2({ area_m2: l.area_m2 }),
         formatCurrency(l.custo),
         formatCurrency(l.receita),
         formatCurrency(l.lucro),
@@ -224,10 +226,11 @@ export function generatePdfReport(
       },
       styles: { fontSize: 10, cellPadding: 4 },
       columnStyles: {
-        0: { cellWidth: 50 },
-        1: { halign: "right", cellWidth: 40 },
-        2: { halign: "right", cellWidth: 40 },
-        3: { halign: "right", cellWidth: 40 },
+        0: { cellWidth: 42 },
+        1: { halign: "right", cellWidth: 30 },
+        2: { halign: "right", cellWidth: 35 },
+        3: { halign: "right", cellWidth: 35 },
+        4: { halign: "right", cellWidth: 35 },
       },
     });
   }

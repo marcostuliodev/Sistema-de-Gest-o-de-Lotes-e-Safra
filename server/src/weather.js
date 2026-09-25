@@ -95,8 +95,29 @@ export async function geocode(query) {
   }));
 }
 
-export async function fetchWeather(lat, lon, tz = "auto") {
-  const key = `${lat},${lon},${tz}`;
+export function normalizeWeatherLocation(location) {
+  if (!location || typeof location !== "object") return null;
+  if (location.lat === null || location.lat === undefined || location.lat === "" || location.lon === null || location.lon === undefined || location.lon === "") return null;
+  const lat = Number(location.lat);
+  const lon = Number(location.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return {
+    lat,
+    lon,
+    city: String(location.city || "").slice(0, 200),
+    tz: String(location.tz || "auto").slice(0, 64) || "auto",
+  };
+}
+
+export async function fetchProjectWeather(projectId, location) {
+  const normalized = normalizeWeatherLocation(location);
+  if (!normalized) throw new Error("Localização do projeto inválida");
+  return fetchWeather(normalized.lat, normalized.lon, normalized.tz, { projectId: String(projectId || "") });
+}
+
+export async function fetchWeather(lat, lon, tz = "auto", options = {}) {
+  const projectId = options && typeof options === "object" ? String(options.projectId || "") : "";
+  const key = `${projectId ? `${projectId}:` : ""}${lat},${lon},${tz}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.t < CACHE_TTL) return hit.v;
 

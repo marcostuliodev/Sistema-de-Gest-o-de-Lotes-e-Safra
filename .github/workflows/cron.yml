@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Disparar verificação de clima
-        run: curl -fsS "$SITE_URL/api/cron/weather?key=$CRON_KEY"
+        run: curl -fsS -H "x-cron-key: $CRON_KEY" "$SITE_URL/api/cron/weather"
         env:
           SITE_URL: ${{ secrets.SITE_URL }}
           CRON_KEY: ${{ secrets.CRON_KEY }}

@@ -6,7 +6,7 @@ import {
   uploadPhoto,
   getPlantioPhotos,
   deletePhoto,
-  getPhotoUrl,
+  fetchPhotoUrl,
   type Photo,
 } from "../db/photos";
 
@@ -26,6 +26,7 @@ export function PhotoUpload({
   maxFotos,
 }: PhotoUploadProps) {
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -58,6 +59,28 @@ export function PhotoUpload({
       setError("");
     }
   }, [open, loadPhotos]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const objectUrls: string[] = [];
+    void Promise.all(photos.map(async (photo) => {
+      const url = await fetchPhotoUrl(photo._id);
+      return [photo._id, url] as const;
+    })).then((entries) => {
+      if (cancelled) {
+        entries.forEach(([, url]) => URL.revokeObjectURL(url));
+        return;
+      }
+      entries.forEach(([, url]) => objectUrls.push(url));
+      setPhotoUrls(Object.fromEntries(entries));
+    }).catch(() => {
+      if (!cancelled) setPhotoUrls({});
+    });
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [photos]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -255,7 +278,7 @@ export function PhotoUpload({
                 className="group relative overflow-hidden rounded-xl border border-stone-200"
               >
                 <img
-                  src={getPhotoUrl(photo._id)}
+                  src={photoUrls[photo._id] || ""}
                   alt={photo.filename}
                   className="aspect-square w-full object-cover"
                   loading="lazy"

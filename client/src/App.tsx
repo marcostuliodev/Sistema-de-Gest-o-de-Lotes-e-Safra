@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./store/auth";
+import { ProjectProvider } from "./store/project";
 import { PlanProvider } from "./store/plan";
 import Layout from "./pages/layout";
 import Login from "./pages/login";
@@ -56,8 +57,25 @@ export default function App() {
   }
 
   return (
-    <PlanProvider>
-      <Routes>
+    <ProjectProvider>
+      <PlanProvider>
+        <Routes>
+        <Route
+          path="/forgot-password"
+          element={
+            <Suspense fallback={<Loading />}>
+              <ForgotPassword />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <Suspense fallback={<Loading />}>
+              <ResetPassword />
+            </Suspense>
+          }
+        />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route element={<Layout />}>
           <Route
@@ -166,7 +184,8 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
-      </Routes>
-    </PlanProvider>
+        </Routes>
+      </PlanProvider>
+    </ProjectProvider>
   );
 }

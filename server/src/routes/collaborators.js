@@ -2,12 +2,13 @@ import { Router } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { v4 as uuid } from "uuid";
-import { col } from "../db.js";
+import { col, withMongoTransaction } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { sanitizeRow, passwordSchema, emailSchema, uuidSchema, sanitizeText, escapeRegExp } from "../validation.js";
 import { hashToken } from "../auth.js";
-import { getPlanFeatures } from "../plans.js";
+import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
+import { ensureDefaultProject, resolveUser, SYSTEM_ROLE_IDS } from "../authz.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -44,6 +45,12 @@ router.post("/invite", asyncHandler(async (req, res) => {
   const asCollab = await collabsCol.findOne({ user_id: req.user.uid, status: "active" });
   if (asCollab) {
     return res.status(403).json({ error: "Colaboradores nao podem convidar outros colaboradores." });
+  }
+
+  if (process.env.ALLOW_LEGACY_INVITES !== "true") {
+    return res.status(410).json({
+      error: "Convites legados desativados. Use /api/projects/:projectId/invites.",
+    });
   }
 
   const { email, role, password } = req.body || {};
@@ -166,8 +173,9 @@ router.post("/invite", asyncHandler(async (req, res) => {
     email: normalizedEmail,
     role,
     status: "pending",
-    token: inviteToken,
-    created_at: new Date().toISOString(),
+     token: inviteToken,
+     expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+     created_at: new Date().toISOString(),
   };
 
   await collabsCol.insertOne(doc);
@@ -280,14 +288,38 @@ router.delete("/:id", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "ID invalido" });
   }
   const collabsCol = await col("collaborators");
-  const result = await collabsCol.deleteOne({
-    _id: parsedId.data,
-    owner_id: req.user.uid,
-  });
-  if (result.deletedCount === 0) {
+  const invite = await collabsCol.findOne({ _id: parsedId.data, owner_id: req.user.uid });
+  if (!invite) {
     return res.status(404).json({ error: "Colaborador nao encontrado" });
   }
-  res.status(204).end();
+  let projectId = invite.project_id ? String(invite.project_id) : "";
+  if (!projectId) {
+    const owner = await resolveUser({ uid: req.user.uid });
+    const defaultProject = await ensureDefaultProject(owner);
+    projectId = String(defaultProject?.id || defaultProject?._id || "");
+  }
+  const invitedUser = await resolveUser({ uid: invite.user_id || invite.user_key || invite.email }).catch(() => null);
+  const identityValues = [...new Set([
+    invite.user_id,
+    invite.user_key,
+    invitedUser?._id,
+    invitedUser?.id,
+    invitedUser?.user_key,
+  ].filter((value) => value !== undefined && value !== null && value !== "").map(String))];
+  await withMongoTransaction(async (session) => {
+    const result = await collabsCol.deleteOne({ _id: parsedId.data, owner_id: req.user.uid }, { session });
+    if (result.deletedCount === 0) throw new Error("COLLABORATOR_NOT_FOUND");
+    if (projectId) {
+      const members = await col("project_members");
+      const identityFilter = identityValues.flatMap((value) => [{ user_id: value }, { user_key: value }]);
+      if (invite.email) identityFilter.push({ email: String(invite.email).toLowerCase() });
+      await members.deleteMany({ project_id: projectId, $or: identityFilter }, { session });
+      const push = await col("push_subscriptions");
+      const pushFilter = identityValues.flatMap((value) => [{ user_id: value }, { actor: value }]);
+      await push.deleteMany({ project_id: projectId, $or: pushFilter }, { session });
+    }
+  });
+   res.status(204).end();
 }));
 
 // POST /api/collaborators/accept - Accept an invitation
@@ -310,15 +342,20 @@ router.post("/accept", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Este convite ja foi processado" });
   }
 
-  // O token era gerado no /invite mas NUNCA validado — agora é exigido
-  // quando o convite possui token (convites legados sem token seguem ok).
-  if (invite.token && (typeof token !== "string" || token !== invite.token)) {
-    return res.status(403).json({ error: "Token do convite invalido" });
-  }
+   if (typeof invite.token !== "string" || !invite.token || typeof token !== "string" || token !== invite.token) {
+     return res.status(403).json({ error: "Token do convite inválido" });
+   }
+    const inviteExpiry = invite.expires_at || invite.expiresAt || (
+      invite.created_at && Number.isFinite(new Date(invite.created_at).getTime())
+        ? new Date(new Date(invite.created_at).getTime() + 30 * 86400000).toISOString()
+        : null
+    );
+    if (inviteExpiry && Number.isFinite(new Date(inviteExpiry).getTime()) && new Date(inviteExpiry).getTime() <= Date.now()) {
+      return res.status(410).json({ error: "Convite expirado" });
+    }
 
   // Check if the current user is the invited one (case-insensitive)
-  const usersCol = await col("users");
-  const currentUser = await usersCol.findOne({ _id: req.user.uid });
+  const currentUser = await resolveUser(req.user);
   const inviteEmail = String(invite.email || "").toLowerCase();
   const userEmail = String(currentUser?.email || "").toLowerCase();
 
@@ -326,19 +363,87 @@ router.post("/accept", asyncHandler(async (req, res) => {
     return res.status(403).json({ error: "Voce nao e o destinatario deste convite" });
   }
 
-  await collabsCol.updateOne(
-    { _id: parsedId.data },
-    {
-      $set: {
-        // SEMPRE o uid autenticado — nunca preserva user_id potencialmente
-        // errado gravado no invite (ex.: convite criado para conta nova).
-        user_id: req.user.uid,
-        status: "active",
-      },
+       if (currentUser.email_verified !== true) {
+      return res.status(403).json({ error: "Confirme seu e-mail antes de aceitar o convite" });
     }
-  );
 
-  res.json({ ok: true });
+    let membershipProjectId = invite.project_id ? String(invite.project_id) : "";
+   if (!membershipProjectId) {
+     const owner = await resolveUser({ uid: invite.owner_id });
+     const defaultProject = await ensureDefaultProject(owner);
+     membershipProjectId = String(defaultProject?.id || defaultProject?._id || "");
+   }
+   if (!membershipProjectId) return res.status(400).json({ error: "Projeto default do owner não encontrado" });
+
+   const effective = await resolveEffectivePlan(invite.owner_id, membershipProjectId);
+   const maxMembers = getPlanFeatures(effective.plan).maxColaboradores;
+   if (maxMembers === 0) return res.status(403).json({ error: "O plano do proprietário não permite mais colaboradores." });
+
+   const accepted = await withMongoTransaction(async (session) => {
+     const lock = await col("member_count_locks");
+     await lock.updateOne(
+       { _id: `members:${membershipProjectId}` },
+       { $inc: { revision: 1 }, $set: { updated_at: new Date().toISOString() } },
+       { upsert: true, session },
+     );
+     const members = await col("project_members");
+     const current = await members.countDocuments({
+       project_id: membershipProjectId,
+       status: { $in: ["active", "pending"] },
+       $nor: [{ role_id: "owner" }, { role: "owner" }],
+     }, { session });
+     if (current >= maxMembers) return { limitReached: true };
+
+     const updatedInvite = await collabsCol.updateOne(
+       { _id: parsedId.data, status: "pending" },
+       { $set: { user_id: req.user.uid, status: "active", project_id: membershipProjectId } },
+       { session },
+     );
+     if (updatedInvite.matchedCount === 0) throw new Error("INVITE_ALREADY_PROCESSED");
+
+     if (membershipProjectId) {
+       const resolved = await resolveUser(req.user);
+       const roleId = invite.role === "admin" ? SYSTEM_ROLE_IDS.EDITOR : SYSTEM_ROLE_IDS.VIEWER;
+       const projectId = membershipProjectId;
+       const userKey = String(resolved.user_key);
+       const existing = await members.findOne(
+         {
+           $or: [
+             { project_id: projectId, user_key: userKey },
+             { project_id: projectId, user_id: userKey },
+             { project_id: projectId, user_id: req.user.uid },
+           ],
+         },
+         { session },
+       );
+       if (existing) {
+         await members.updateOne(
+           { _id: existing._id },
+           { $set: { user_key: userKey, user_id: userKey, role_id: roleId, status: "active", updated_at: new Date().toISOString() } },
+           { session },
+         );
+       } else {
+         await members.insertOne({
+           _id: crypto.randomUUID(),
+           id: crypto.randomUUID(),
+           project_id: projectId,
+           user_key: userKey,
+           user_id: userKey,
+           role_id: roleId,
+           status: "active",
+           created_at: new Date().toISOString(),
+           updated_at: new Date().toISOString(),
+         }, { session });
+         }
+       }
+       return { limitReached: false };
+     });
+
+    if (accepted?.limitReached) {
+      return res.status(403).json({ error: "Limite de colaboradores do projeto atingido." });
+    }
+
+    res.json({ ok: true });
 }));
 
 // GET /api/collaborators/my-access - List projects user has access to
@@ -418,14 +523,12 @@ router.post("/decline", asyncHandler(async (req, res) => {
     return res.status(400).json({ error: "Este convite ja foi processado" });
   }
 
-  // Mesma exigência de token do /accept.
-  if (invite.token && (typeof token !== "string" || token !== invite.token)) {
-    return res.status(403).json({ error: "Token do convite invalido" });
-  }
+   if (typeof invite.token !== "string" || !invite.token || typeof token !== "string" || token !== invite.token) {
+     return res.status(403).json({ error: "Token do convite inválido" });
+   }
 
   // Check if the current user is the invited one (case-insensitive)
-  const usersCol = await col("users");
-  const currentUser = await usersCol.findOne({ _id: req.user.uid });
+  const currentUser = await resolveUser(req.user);
   const inviteEmail = String(invite.email || "").toLowerCase();
   const userEmail = String(currentUser?.email || "").toLowerCase();
 
@@ -433,7 +536,17 @@ router.post("/decline", asyncHandler(async (req, res) => {
     return res.status(403).json({ error: "Voce nao e o destinatario deste convite" });
   }
 
-  await collabsCol.deleteOne({ _id: parsedId.data });
+  await withMongoTransaction(async (session) => {
+    const deleted = await collabsCol.deleteOne({ _id: parsedId.data, status: "pending" }, { session });
+    if (deleted.deletedCount === 0) throw new Error("INVITE_ALREADY_PROCESSED");
+     if (invite.project_id) {
+       const members = await col("project_members");
+       await members.deleteMany({
+         project_id: String(invite.project_id),
+         $or: [{ user_id: req.user.uid }, { email: String(invite.email || "").toLowerCase() }],
+       }, { session });
+     }
+  });
   res.json({ ok: true });
 }));
 

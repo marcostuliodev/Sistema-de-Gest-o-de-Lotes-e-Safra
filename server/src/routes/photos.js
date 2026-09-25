@@ -1,48 +1,67 @@
 import { Router } from "express";
-import { GridFSBucket, ObjectId } from "mongodb";
-import { col, getGridFSBucket } from "../db.js";
+import { ObjectId } from "mongodb";
+import { v4 as uuid } from "uuid";
+import { col, getGridFSBucket, withMongoTransaction } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { getPlanFeatures, resolveEffectivePlan } from "../plans.js";
+import { getPlanFeatures, getSubscriptionPlan } from "../plans.js";
+import {
+  PERMISSIONS,
+  idToString,
+  normalizeId,
+  projectMiddleware,
+  requireProjectPermission,
+} from "../authz.js";
+import {
+  buildProjectFilter,
+  combineFilters,
+  documentIdFilter,
+  findProjectDocument,
+  getActorKey,
+  getProjectId,
+  getProjectOwner,
+} from "../projectScope.js";
 
 const router = Router();
 router.use(authMiddleware);
+router.use(projectMiddleware);
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-// Teto do corpo multipart: 5MB (arquivo) + 50KB de margem p/ fields/boundary
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MULTIPART_BODY_LIMIT = MAX_FILE_SIZE + 50 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
-function getExtension(filename) {
-  const idx = filename.lastIndexOf(".");
-  return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
+class PhotoError extends Error {
+  constructor(message, status = 400, code = "PHOTO_INVALID") {
+    super(message);
+    this.name = "PhotoError";
+    this.status = status;
+    this.code = code;
+  }
 }
 
-/** Só permite extensões da whitelist (evita .svg/.html etc. no GridFS). */
+function getExtension(filename) {
+  const idx = String(filename).lastIndexOf(".");
+  return idx >= 0 ? String(filename).slice(idx).toLowerCase() : "";
+}
+
 function getAllowedExtension(ext) {
   return ALLOWED_EXTENSIONS.includes(ext) ? ext : ".jpg";
 }
 
-/** Remove caracteres perigosos do nome exibido (path traversal / HTML). */
 function sanitizeFilename(name) {
   return String(name).replace(/[<>"'`/\\]/g, "").slice(0, 200) || "photo.jpg";
 }
 
 function validateImageFile(file) {
   if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`Arquivo excede o limite de 5MB (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+    throw new PhotoError(`Arquivo excede o limite de 5MB (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
   }
   if (!ALLOWED_TYPES.includes(file.mimetype)) {
-    throw new Error(`Tipo de arquivo não permitido: ${file.mimetype}. Use JPEG, PNG ou WebP.`);
+    throw new PhotoError(`Tipo de arquivo não permitido: ${file.mimetype}. Use JPEG, PNG ou WebP.`);
   }
 }
 
-/**
- * VULN-027: verifica magic bytes do buffer contra o mimetype declarado.
- * JPEG: FF D8 FF | PNG: 89 50 4E 47 | WebP: RIFF....WEBP
- * Retorna true se bate (ou se não dá para checar buffer vazio demais → false).
- */
 function magicBytesMatch(buffer, mimetype) {
   if (!buffer || buffer.length < 12) return false;
   if (mimetype === "image/jpeg") {
@@ -57,288 +76,384 @@ function magicBytesMatch(buffer, mimetype) {
   return false;
 }
 
-async function checkPhotoLimit(userId, count) {
-  const { resolveEffectivePlan } = await import("../plans.js");
-  const { plan: activePlan } = await resolveEffectivePlan(userId);
+async function activePlanForOwner(owner, session) {
+  const subscriptions = await col("subscriptions");
+  const clauses = owner.values.map((value) => ({ user_id: value }));
+  const subscription = clauses.length > 0
+    ? await subscriptions.findOne({ $or: clauses }, session ? { session } : undefined)
+    : null;
+  return getSubscriptionPlan(subscription);
+}
+
+async function checkPhotoLimit(owner, req, session) {
+  const activePlan = await activePlanForOwner(owner, session);
   const features = getPlanFeatures(activePlan);
   const max = features.maxFotos;
   if (max === 0) {
-    throw new Error("Seu plano não permite uploads de fotos. Faça upgrade para usar esta funcionalidade.");
+    throw new PhotoError(
+      "Seu plano não permite uploads de fotos. Faça upgrade para usar esta funcionalidade.",
+      403,
+      "PLAN_LIMIT"
+    );
   }
-  if (max !== Infinity && count >= max) {
-    throw new Error(`Limite de fotos atingido (${max}). Faça upgrade do seu plano.`);
+  if (max !== Infinity) {
+    const lock = await col("photo_count_locks");
+    await lock.updateOne(
+      { _id: `${getProjectId(req)}:photos` },
+      { $inc: { revision: 1 }, $set: { updated_at: new Date().toISOString() } },
+      { upsert: true, session },
+    );
+    const count = await (await col("photos_metadata")).countDocuments(
+      await buildProjectFilter(req),
+      session ? { session } : undefined,
+    );
+    if (count >= max) {
+      throw new PhotoError(`Limite de fotos atingido (${max}). Faça upgrade do seu plano.`, 403, "PLAN_LIMIT");
+    }
   }
-  return { activePlan, max };
 }
 
-// POST /api/photos — Upload via multipart/form-data
-router.post("/", asyncHandler(async (req, res) => {
-  const contentType = req.headers["content-type"] || "";
-
-  if (contentType.includes("multipart/form-data")) {
-    // VULN-004: aborta cedo se o Content-Length declarado já excede o limite
-    const declaredLength = Number.parseInt(req.headers["content-length"] || "", 10);
-    if (Number.isFinite(declaredLength) && declaredLength > MULTIPART_BODY_LIMIT) {
-      return res.status(413).json({ error: "Corpo da requisição excede o limite de 5MB." });
-    }
-
-    // Handle multipart form data
-    const chunks = [];
-    const fields = {};
-    let receivedBytes = 0;
-    let aborted = false;
-
-    try {
-      await new Promise((resolve, reject) => {
-        let currentField = null;
-        let currentData = [];
-        let boundary = "";
-
-        const boundaryMatch = contentType.match(/boundary=(.+)/);
-        if (boundaryMatch) boundary = boundaryMatch[1];
-
-        req.on("data", (chunk) => {
-          if (aborted) return;
-          receivedBytes += chunk.length;
-          if (receivedBytes > MULTIPART_BODY_LIMIT) {
-            aborted = true;
-            const err = new Error("Corpo da requisição excede o limite de 5MB.");
-            err.status = 413;
-            if (!res.headersSent) res.status(413).json({ error: err.message });
-            req.destroy();
-            reject(err);
-            return;
-          }
-          chunks.push(chunk);
-        });
-
-        req.on("end", () => {
-          try {
-            const fullBuffer = Buffer.concat(chunks);
-            const boundaryBuf = Buffer.from(`--${boundary}`);
-            const parts = splitBuffer(fullBuffer, boundaryBuf);
-
-            for (const part of parts) {
-              const str = part.toString("utf-8");
-              const headerEnd = str.indexOf("\r\n\r\n");
-              if (headerEnd === -1) continue;
-
-              const headerSection = str.slice(0, headerEnd);
-              const nameMatch = headerSection.match(/name="([^"]+)"/);
-              const filenameMatch = headerSection.match(/filename="([^"]+)"/);
-              const contentTypeMatch = headerSection.match(/Content-Type:\s*(.+)/i);
-
-              if (nameMatch) {
-                const fieldName = nameMatch[1];
-                const rawData = part.slice(Buffer.byteLength(str.slice(0, headerEnd + 4)));
-
-                if (filenameMatch) {
-                  // This is a file field
-                  fields[fieldName] = {
-                    originalname: filenameMatch[1],
-                    mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : "application/octet-stream",
-                    buffer: rawData,
-                    size: rawData.length,
-                  };
-                } else {
-                  // This is a regular field
-                  fields[fieldName] = rawData.toString("utf-8").trim();
-                }
-              }
-            }
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        });
-
-        req.on("error", reject);
-      });
-    } catch (err) {
-      if (res.headersSent) return;
-      return res.status(err.status || 400).json({ error: err.message || "Falha ao processar o upload." });
-    }
-
-    const file = fields.photo;
-    if (!file) {
-      return res.status(400).json({ error: "Nenhum arquivo enviado. Use o campo 'photo'." });
-    }
-
-    validateImageFile(file);
-
-    // VULN-027: magic bytes precisam bater com o mimetype declarado (400)
-    if (!magicBytesMatch(file.buffer, file.mimetype)) {
-      return res.status(400).json({ error: "Conteúdo do arquivo não corresponde ao tipo declarado. Use JPEG, PNG ou WebP válidos." });
-    }
-
-    const plantio_id = typeof fields.plantio_id === "string" ? fields.plantio_id : "";
-    const lote_id = typeof fields.lote_id === "string" ? fields.lote_id : "";
-
-    // Check photo count limit
-    const photoCount = await (await col("photos_metadata")).countDocuments({ user_id: req.user.uid });
-    await checkPhotoLimit(req.user.uid, photoCount);
-
-    // Upload to GridFS
-    const bucket = getGridFSBucket();
-    const ext = getAllowedExtension(getExtension(file.originalname));
-    const filename = `${req.user.uid}/${Date.now()}${ext}`;
-
-    const uploadStream = bucket.openUploadStream(filename, {
-      contentType: file.mimetype,
-      metadata: { user_id: req.user.uid },
-    });
-
-    await new Promise((resolve, reject) => {
-      uploadStream.on("error", reject);
-      uploadStream.on("finish", resolve);
-      uploadStream.end(file.buffer);
-    });
-
-    // Save metadata
-    const metadata = {
-      _id: new ObjectId().toHexString(),
-      user_id: req.user.uid,
-      plantio_id,
-      lote_id,
-      filename: sanitizeFilename(file.originalname),
-      mimetype: file.mimetype,
-      size: file.size,
-      gridfs_id: uploadStream.id.toString(),
-      created_at: new Date().toISOString(),
-    };
-
-    await (await col("photos_metadata")).insertOne(metadata);
-    res.status(201).json(metadata);
-  } else if (contentType.includes("application/json")) {
-    // Handle base64 JSON
-    const { plantio_id, lote_id, filename, mimetype, data } = req.body || {};
-    if (typeof data !== "string" || !data) {
-      return res.status(400).json({ error: "Campo 'data' (base64) obrigatório." });
-    }
-
-    const buffer = Buffer.from(data, "base64");
-    if (buffer.length > MAX_FILE_SIZE) {
-      return res.status(400).json({ error: `Arquivo excede o limite de 5MB` });
-    }
-
-    const finalMimetype = typeof mimetype === "string" && mimetype ? mimetype : "image/jpeg";
-    if (!ALLOWED_TYPES.includes(finalMimetype)) {
-      return res.status(400).json({ error: `Tipo não permitido: ${finalMimetype}` });
-    }
-
-    // VULN-027: magic bytes do buffer base64 precisam bater com o mimetype
-    if (!magicBytesMatch(buffer, finalMimetype)) {
-      return res.status(400).json({ error: "Conteúdo do arquivo não corresponde ao tipo declarado. Use JPEG, PNG ou WebP válidos." });
-    }
-
-    const safeFilename = typeof filename === "string" && filename ? filename : "photo.jpg";
-    const plantioRef = typeof plantio_id === "string" ? plantio_id : "";
-    const loteRef = typeof lote_id === "string" ? lote_id : "";
-
-    const photoCount = await (await col("photos_metadata")).countDocuments({ user_id: req.user.uid });
-    await checkPhotoLimit(req.user.uid, photoCount);
-
-    const bucket = getGridFSBucket();
-    const ext = getAllowedExtension(getExtension(safeFilename));
-    const gfFilename = `${req.user.uid}/${Date.now()}${ext}`;
-
-    const uploadStream = bucket.openUploadStream(gfFilename, {
-      contentType: finalMimetype,
-      metadata: { user_id: req.user.uid },
-    });
-
-    await new Promise((resolve, reject) => {
-      uploadStream.on("error", reject);
-      uploadStream.on("finish", resolve);
-      uploadStream.end(buffer);
-    });
-
-    const metadata = {
-      _id: new ObjectId().toHexString(),
-      user_id: req.user.uid,
-      plantio_id: plantioRef,
-      lote_id: loteRef,
-      filename: sanitizeFilename(safeFilename),
-      mimetype: finalMimetype,
-      size: buffer.length,
-      gridfs_id: uploadStream.id.toString(),
-      created_at: new Date().toISOString(),
-    };
-
-    await (await col("photos_metadata")).insertOne(metadata);
-    res.status(201).json(metadata);
-  } else {
-    return res.status(400).json({ error: "Content-Type não suportado. Use multipart/form-data ou application/json." });
+function assertSuppliedProject(value, req) {
+  if (value === undefined || value === null || value === "") return;
+  const supplied = normalizeId(value) || idToString(value);
+  if (supplied !== getProjectId(req)) {
+    throw new PhotoError("Operação pertence a outro projeto", 403, "PROJECT_SCOPE");
   }
-}));
+}
 
-// GET /api/photos?plantio_id=xxx or ?lote_id=xxx
-router.get("/", asyncHandler(async (req, res) => {
-  const { plantio_id, lote_id } = req.query;
-  const filter = { user_id: req.user.uid };
-  if (plantio_id) filter.plantio_id = plantio_id;
-  if (lote_id) filter.lote_id = lote_id;
+async function validatePhotoReferences(req, plantioId, loteId) {
+  const references = [];
+  if (plantioId) references.push({ collection: "plantios", value: plantioId, label: "plantio" });
+  if (loteId) references.push({ collection: "lotes", value: loteId, label: "lote" });
+  for (const reference of references) {
+    const collection = await col(reference.collection);
+    const found = await findProjectDocument(req, collection, reference.value);
+    if (!found) {
+      throw new PhotoError(`Referência de ${reference.label} inválida para este projeto`, 400, "PROJECT_REFERENCE_INVALID");
+    }
+  }
+}
 
-  const photos = await (await col("photos_metadata"))
-    .find(filter)
-    .sort({ created_at: -1 })
-    .toArray();
+async function uploadBuffer(req, owner, buffer, originalname, mimetype, plantioId, loteId) {
+  const file = { buffer, size: buffer.length, mimetype, originalname };
+  validateImageFile(file);
+  if (!magicBytesMatch(buffer, mimetype)) {
+    throw new PhotoError("Conteúdo do arquivo não corresponde ao tipo declarado. Use JPEG, PNG ou WebP válidos.");
+  }
 
-  res.json(photos);
-}));
-
-// GET /api/photos/:id/file — Serve the actual image file
-router.get("/:id/file", asyncHandler(async (req, res) => {
-  const photo = await (await col("photos_metadata")).findOne({
-    _id: req.params.id,
-    user_id: req.user.uid,
-  });
-  if (!photo) return res.status(404).json({ error: "Foto não encontrada" });
+  await validatePhotoReferences(req, plantioId, loteId);
 
   const bucket = getGridFSBucket();
-  const gridfsId = new ObjectId(photo.gridfs_id);
-
-  res.set("Content-Type", photo.mimetype);
-  res.set("Cache-Control", "public, max-age=31536000");
-
-  const downloadStream = bucket.openDownloadStream(gridfsId);
-  downloadStream.on("error", () => res.status(404).json({ error: "Arquivo não encontrado" }));
-  downloadStream.pipe(res);
-}));
-
-// DELETE /api/photos/:id
-router.delete("/:id", asyncHandler(async (req, res) => {
-  const photo = await (await col("photos_metadata")).findOne({
-    _id: req.params.id,
-    user_id: req.user.uid,
-  });
-  if (!photo) return res.status(404).json({ error: "Foto não encontrada" });
-
-  // Delete from GridFS
+  const ext = getAllowedExtension(getExtension(originalname));
+  const filename = `${getProjectId(req)}/${owner.userId}/${Date.now()}-${uuid()}${ext}`;
+  const gridMetadata = {
+    project_id: getProjectId(req),
+    user_id: owner.userId,
+    actor: getActorKey(req),
+    created_by: getActorKey(req),
+  };
+  let uploadedId = null;
   try {
-    const bucket = getGridFSBucket();
-    await bucket.delete(new ObjectId(photo.gridfs_id));
-  } catch {
-    // File might not exist in GridFS, continue with metadata deletion
+    return await withMongoTransaction(async (session) => {
+      // O lock é mantido até a inserção do metadata; assim dois uploads
+      // simultâneos não observam o mesmo contador abaixo do limite.
+      await checkPhotoLimit(owner, req, session);
+      const uploadStream = bucket.openUploadStream(filename, {
+        contentType: mimetype,
+        metadata: gridMetadata,
+      });
+      uploadedId = uploadStream.id;
+      await new Promise((resolve, reject) => {
+        uploadStream.on("error", reject);
+        uploadStream.on("finish", resolve);
+        uploadStream.end(buffer);
+      });
+      const metadata = {
+        _id: new ObjectId().toHexString(),
+        project_id: getProjectId(req),
+        user_id: owner.userId,
+        actor: getActorKey(req),
+        created_by: getActorKey(req),
+        plantio_id: plantioId,
+        lote_id: loteId,
+        filename: sanitizeFilename(originalname),
+        mimetype,
+        size: buffer.length,
+        gridfs_id: uploadStream.id.toString(),
+        created_at: new Date().toISOString(),
+      };
+      await (await col("photos_metadata")).insertOne(metadata, { session });
+      return metadata;
+    });
+  } catch (error) {
+    if (uploadedId) {
+      try {
+        await bucket.delete(uploadedId);
+      } catch {
+      }
+    }
+    throw error;
   }
+}
 
-  // Delete metadata
-  await (await col("photos_metadata")).deleteOne({ _id: req.params.id });
-  res.status(204).end();
-}));
+function publicPhoto(photo) {
+  const { gridfs_id, user_id, actor, project_id, ...safe } = photo || {};
+  return safe;
+}
 
-// Helper: split buffer by delimiter
+function photoErrorResponse(res, error) {
+  if (!(error instanceof PhotoError)) return null;
+  return res.status(error.status).json({ error: error.message, code: error.code });
+}
+
+router.post(
+  "/",
+  requireProjectPermission(PERMISSIONS.PHOTOS_WRITE),
+  asyncHandler(async (req, res) => {
+    const contentType = req.headers["content-type"] || "";
+    try {
+      if (contentType.includes("multipart/form-data")) {
+        const declaredLength = Number.parseInt(req.headers["content-length"] || "", 10);
+        if (Number.isFinite(declaredLength) && declaredLength > MULTIPART_BODY_LIMIT) {
+          return res.status(413).json({ error: "Corpo da requisição excede o limite de 5MB." });
+        }
+
+        const chunks = [];
+         const fields = Object.create(null);
+        let receivedBytes = 0;
+        let aborted = false;
+
+        try {
+          await new Promise((resolve, reject) => {
+            let boundary = "";
+            const boundaryMatch = contentType.match(/boundary=(.+)/);
+            if (boundaryMatch) boundary = boundaryMatch[1];
+
+            req.on("data", (chunk) => {
+              if (aborted) return;
+              receivedBytes += chunk.length;
+              if (receivedBytes > MULTIPART_BODY_LIMIT) {
+                aborted = true;
+                const error = new Error("Corpo da requisição excede o limite de 5MB.");
+                error.status = 413;
+                if (!res.headersSent) res.status(413).json({ error: error.message });
+                req.destroy();
+                reject(error);
+                return;
+              }
+              chunks.push(chunk);
+            });
+
+            req.on("end", () => {
+              try {
+                const fullBuffer = Buffer.concat(chunks);
+                const boundaryBuf = Buffer.from(`--${boundary}`);
+                const parts = splitBuffer(fullBuffer, boundaryBuf);
+                for (const part of parts) {
+                  const text = part.toString("utf-8");
+                  const headerEnd = text.indexOf("\r\n\r\n");
+                  if (headerEnd === -1) continue;
+                  const headerSection = text.slice(0, headerEnd);
+                  const nameMatch = headerSection.match(/name="([^"]+)"/);
+                  const filenameMatch = headerSection.match(/filename="([^"]+)"/);
+                  const contentTypeMatch = headerSection.match(/Content-Type:\s*(.+)/i);
+                  if (!nameMatch) continue;
+                  const fieldName = nameMatch[1];
+                  const rawData = part.slice(Buffer.byteLength(text.slice(0, headerEnd + 4)));
+                  if (filenameMatch) {
+                    fields[fieldName] = {
+                      originalname: filenameMatch[1],
+                      mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : "application/octet-stream",
+                      buffer: rawData,
+                      size: rawData.length,
+                    };
+                  } else {
+                    fields[fieldName] = rawData.toString("utf-8").trim();
+                  }
+                }
+                resolve();
+              } catch (error) {
+                reject(error);
+              }
+            });
+            req.on("error", reject);
+          });
+        } catch (error) {
+          if (res.headersSent) return;
+          return res.status(error.status || 400).json({ error: error.message || "Falha ao processar o upload." });
+        }
+
+        const file = fields.photo;
+        if (!file) return res.status(400).json({ error: "Nenhum arquivo enviado. Use o campo 'photo'." });
+        assertSuppliedProject(fields.project_id, req);
+        assertSuppliedProject(fields.projectId, req);
+        const plantioId = typeof fields.plantio_id === "string" ? fields.plantio_id : "";
+        const loteId = typeof fields.lote_id === "string" ? fields.lote_id : "";
+        const owner = await getProjectOwner(req);
+        const metadata = await uploadBuffer(
+          req,
+          owner,
+          file.buffer,
+          file.originalname,
+          file.mimetype,
+          plantioId,
+          loteId
+        );
+         return res.status(201).json(publicPhoto(metadata));
+      }
+
+      if (contentType.includes("application/json")) {
+        const body = req.body || {};
+        const data = body.data;
+        if (typeof data !== "string" || !data) {
+          return res.status(400).json({ error: "Campo 'data' (base64) obrigatório." });
+        }
+        assertSuppliedProject(body.project_id, req);
+        assertSuppliedProject(body.projectId, req);
+        const buffer = Buffer.from(data, "base64");
+        if (buffer.length > MAX_FILE_SIZE) {
+          return res.status(400).json({ error: "Arquivo excede o limite de 5MB" });
+        }
+        const mimetype = typeof body.mimetype === "string" && body.mimetype ? body.mimetype : "image/jpeg";
+        const filename = typeof body.filename === "string" && body.filename ? body.filename : "photo.jpg";
+        const plantioId = typeof body.plantio_id === "string" ? body.plantio_id : "";
+        const loteId = typeof body.lote_id === "string" ? body.lote_id : "";
+        const owner = await getProjectOwner(req);
+        const metadata = await uploadBuffer(req, owner, buffer, filename, mimetype, plantioId, loteId);
+         return res.status(201).json(publicPhoto(metadata));
+      }
+
+      return res.status(400).json({ error: "Content-Type não suportado. Use multipart/form-data ou application/json." });
+    } catch (error) {
+      const response = photoErrorResponse(res, error);
+      if (response) return response;
+      throw error;
+    }
+  })
+);
+
+router.get(
+  "/",
+  requireProjectPermission(PERMISSIONS.PHOTOS_READ),
+  asyncHandler(async (req, res) => {
+    const scope = await buildProjectFilter(req);
+    const filters = [scope];
+    if (req.query.plantio_id) {
+      const collection = await col("plantios");
+      const found = await findProjectDocument(req, collection, req.query.plantio_id);
+      if (!found) return res.status(400).json({ error: "Referência de plantio inválida para este projeto", code: "PROJECT_REFERENCE_INVALID" });
+      filters.push({ plantio_id: req.query.plantio_id });
+    }
+    if (req.query.lote_id) {
+      const collection = await col("lotes");
+      const found = await findProjectDocument(req, collection, req.query.lote_id);
+      if (!found) return res.status(400).json({ error: "Referência de lote inválida para este projeto", code: "PROJECT_REFERENCE_INVALID" });
+      filters.push({ lote_id: req.query.lote_id });
+    }
+
+    const photos = await (await col("photos_metadata"))
+      .find(combineFilters(...filters))
+      .sort({ created_at: -1 })
+      .toArray();
+     return res.json(photos.map(publicPhoto));
+  })
+);
+
+function gridFsObjectId(value) {
+  if (value instanceof ObjectId) return value;
+  const id = idToString(value);
+  return id && ObjectId.isValid(id) ? new ObjectId(id) : null;
+}
+
+async function gridFileScope(bucket, gridfsId, req) {
+  if (typeof bucket.find !== "function") return { checked: false, allowed: true };
+  const cursor = bucket.find({ _id: gridfsId });
+  if (!cursor || typeof cursor.next !== "function") return { checked: false, allowed: true };
+  const file = await cursor.next();
+  if (!file) return { checked: true, allowed: false };
+  const storedProject = file.metadata?.project_id ?? file.project_id;
+  if (storedProject !== undefined && storedProject !== null && storedProject !== "") {
+    return { checked: true, allowed: (normalizeId(storedProject) || idToString(storedProject)) === getProjectId(req) };
+  }
+  const storedOwner = file.metadata?.user_id ?? file.metadata?.owner_id ?? file.user_id ?? file.owner_id;
+  if (storedOwner !== undefined && storedOwner !== null && storedOwner !== "") {
+    const owner = await getProjectOwner(req);
+    return {
+      checked: true,
+      allowed: req.project?.is_default === true
+        && owner.values.some((value) => (normalizeId(value) || idToString(value)) === (normalizeId(storedOwner) || idToString(storedOwner))),
+    };
+  }
+  return { checked: true, allowed: false };
+}
+
+router.get(
+  "/:id/file",
+  requireProjectPermission(PERMISSIONS.PHOTOS_READ),
+  asyncHandler(async (req, res) => {
+    const photos = await col("photos_metadata");
+    const photo = await findProjectDocument(req, photos, req.params.id);
+    if (!photo) return res.status(404).json({ error: "Foto não encontrada" });
+
+    if (!ALLOWED_TYPES.includes(photo.mimetype)) return res.status(404).json({ error: "Arquivo não encontrado" });
+    const gridfsId = gridFsObjectId(photo.gridfs_id);
+    if (!gridfsId) return res.status(404).json({ error: "Arquivo não encontrado" });
+    const bucket = getGridFSBucket();
+    const scope = await gridFileScope(bucket, gridfsId, req);
+    if (scope.checked && !scope.allowed) return res.status(404).json({ error: "Arquivo não encontrado" });
+
+    res.set("Content-Type", photo.mimetype);
+    res.set("Cache-Control", "private, no-store");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+
+    const downloadStream = bucket.openDownloadStream(gridfsId);
+    downloadStream.on("error", () => {
+      if (!res.headersSent) res.status(404).json({ error: "Arquivo não encontrado" });
+      else res.destroy();
+    });
+    downloadStream.pipe(res);
+  })
+);
+
+router.delete(
+  "/:id",
+  requireProjectPermission(PERMISSIONS.PHOTOS_WRITE),
+  asyncHandler(async (req, res) => {
+    const photos = await col("photos_metadata");
+    const photo = await findProjectDocument(req, photos, req.params.id);
+    if (!photo) return res.status(404).json({ error: "Foto não encontrada" });
+
+    const gridfsId = gridFsObjectId(photo.gridfs_id);
+    if (gridfsId) {
+      const bucket = getGridFSBucket();
+      const fileScope = await gridFileScope(bucket, gridfsId, req);
+      if (fileScope.checked && !fileScope.allowed) return res.status(404).json({ error: "Foto não encontrada" });
+      try {
+        await bucket.delete(gridfsId);
+      } catch {
+      }
+    }
+
+    const result = await photos.deleteOne(
+      combineFilters(await buildProjectFilter(req), documentIdFilter(photo._id ?? photo.id))
+    );
+    if (result.deletedCount === 0) return res.status(404).json({ error: "Foto não encontrada" });
+    return res.status(204).end();
+  })
+);
+
 function splitBuffer(buffer, delimiter) {
   const parts = [];
   let start = 0;
   while (true) {
-    const idx = buffer.indexOf(delimiter, start);
-    if (idx === -1) break;
+    const index = buffer.indexOf(delimiter, start);
+    if (index === -1) break;
     if (start > 0) {
-      const part = buffer.slice(start, idx - 2); // -2 for \r\n before delimiter
+      const part = buffer.slice(start, index - 2);
       if (part.length > 0) parts.push(part);
     }
-    start = idx + delimiter.length + 2; // +2 for \r\n after delimiter
+    start = index + delimiter.length + 2;
   }
   return parts;
 }

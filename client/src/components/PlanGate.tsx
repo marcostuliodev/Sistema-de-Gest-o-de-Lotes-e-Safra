@@ -7,6 +7,7 @@
 
 import type { ReactNode } from "react";
 import { usePlan, type PlanFeatures } from "../store/plan";
+import { useProject } from "../store/project";
 import { Button } from "./ui";
 import { useNavigate } from "react-router-dom";
 
@@ -19,6 +20,8 @@ interface PlanGateProps {
   children: ReactNode;
   /** Conteúdo alternativo quando bloqueado. Se não fornecido, mostra CTA padrão. */
   fallback?: ReactNode;
+  /** Permissão do projeto necessária, além do plano. */
+  permission?: string;
   /** Título do card de bloqueio. */
   blockedTitle?: string;
   /** Descrição do card de bloqueio. */
@@ -39,12 +42,26 @@ export function PlanGate({
   fallback,
   blockedTitle,
   blockedDescription,
+  permission,
 }: PlanGateProps) {
   const { plan, features, loading, isCollaborator } = usePlan();
+  const { can } = useProject();
   const navigate = useNavigate();
 
   if (loading) {
     return <p className="text-sm text-stone-400">Carregando...</p>;
+  }
+
+  if (permission && !can(permission)) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-6 py-12 text-center">
+        <div className="mb-3 text-4xl">🔒</div>
+        <p className="font-semibold text-stone-700">Permissão não concedida neste projeto</p>
+        <p className="mt-1 max-w-sm text-sm text-stone-500">
+          {blockedDescription || "O proprietário do projeto pode conceder esta permissão."}
+        </p>
+      </div>
+    );
   }
 
   // Verifica por feature específica

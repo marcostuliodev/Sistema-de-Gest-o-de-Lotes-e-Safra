@@ -9,6 +9,9 @@
  * 5. A cada sync online, valida com server time via heartbeat
  */
 
+import { getActiveScope } from "../db/db";
+import { getScopedStorageItem, removeScopedStorageItem, setScopedStorageItem } from "./scoped-storage";
+
 const ANCHOR_KEY = "agrolote_clock_anchor";
 const CLOCK_VIOLATIONS_KEY = "agrolote_clock_violations";
 
@@ -23,41 +26,45 @@ export interface ClockCheckResult {
 /**
  * Retorna a âncora de tempo salva.
  */
+function storageContext() {
+  const scope = getActiveScope();
+  return scope ? { userId: scope.userId, projectId: scope.projectId } : null;
+}
+
 export function getAnchor(): number | null {
-  try {
-    const raw = localStorage.getItem(ANCHOR_KEY);
-    return raw ? Number(raw) : null;
-  } catch {
-    return null;
-  }
+  const context = storageContext();
+  if (!context) return null;
+  const raw = getScopedStorageItem(context, ANCHOR_KEY, "local", false);
+  return raw ? Number(raw) : null;
 }
 
 /**
  * Atualiza a âncora de tempo.
  */
 export function setAnchor(time: number) {
-  localStorage.setItem(ANCHOR_KEY, String(time));
+  const context = storageContext();
+  if (context) setScopedStorageItem(context, ANCHOR_KEY, String(time), "local");
 }
 
 /**
  * Retorna violações de relógio acumuladas.
  */
 function getViolations(): number {
-  try {
-    return Number(localStorage.getItem(CLOCK_VIOLATIONS_KEY) || "0");
-  } catch {
-    return 0;
-  }
+  const context = storageContext();
+  if (!context) return 0;
+  return Number(getScopedStorageItem(context, CLOCK_VIOLATIONS_KEY, "local", false) || "0");
 }
 
 function addViolation(): number {
   const count = getViolations() + 1;
-  localStorage.setItem(CLOCK_VIOLATIONS_KEY, String(count));
+  const context = storageContext();
+  if (context) setScopedStorageItem(context, CLOCK_VIOLATIONS_KEY, String(count), "local");
   return count;
 }
 
 function clearViolations() {
-  localStorage.removeItem(CLOCK_VIOLATIONS_KEY);
+  const context = storageContext();
+  if (context) removeScopedStorageItem(context, CLOCK_VIOLATIONS_KEY, "local");
 }
 
 /**

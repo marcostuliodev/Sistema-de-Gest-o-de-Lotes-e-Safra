@@ -1,19 +1,34 @@
+import { getActiveScope } from "./db";
+
 export interface Photo {
   _id: string;
-  user_id: string;
+  user_id?: string;
   plantio_id: string;
   lote_id: string;
   filename: string;
   mimetype: string;
   size: number;
-  gridfs_id: string;
+  gridfs_id?: string;
   created_at: string;
 }
 
 const API = "/api/photos";
 
+function projectId(): string {
+  const scope = getActiveScope();
+  if (!scope) throw new Error("Projeto não selecionado");
+  return scope.projectId;
+}
+
+function withProjectHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  result.set("X-Project-Id", projectId());
+  return result;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, { ...options, credentials: "include" });
+  const headers = withProjectHeaders(options.headers);
+  const res = await fetch(path, { ...options, headers, credentials: "include" });
   if (res.status === 401) {
     window.dispatchEvent(new CustomEvent("agrolote:logout"));
     throw new Error("Sessão expirada");
@@ -41,6 +56,7 @@ export async function uploadPhoto(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", API);
     xhr.withCredentials = true;
+    xhr.setRequestHeader("X-Project-Id", projectId());
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -79,5 +95,18 @@ export async function deletePhoto(id: string): Promise<void> {
 }
 
 export function getPhotoUrl(photoId: string): string {
-  return `${API}/${photoId}/file`;
+  return `${API}/${encodeURIComponent(photoId)}/file?project_id=${encodeURIComponent(projectId())}`;
+}
+
+export async function fetchPhotoUrl(photoId: string): Promise<string> {
+  const res = await fetch(`${API}/${photoId}/file`, {
+    headers: withProjectHeaders(),
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent("agrolote:logout"));
+    throw new Error("Sessão expirada");
+  }
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return URL.createObjectURL(await res.blob());
 }
