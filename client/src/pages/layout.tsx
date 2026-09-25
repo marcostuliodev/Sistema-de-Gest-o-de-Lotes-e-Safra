@@ -260,9 +260,9 @@ export default function Layout() {
       </aside>
 
       {/* Coluna de conteúdo + menu (mobile) / conteúdo (desktop) */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          <div className="mx-auto w-full min-w-0 max-w-5xl px-4 py-6 sm:px-6">
             <Outlet />
           </div>
         </main>

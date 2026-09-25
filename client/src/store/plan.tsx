@@ -27,6 +27,14 @@ export interface PlanFeatures {
   label: string;
 }
 
+export interface TrialResult {
+  plan: string;
+  trialEnd: string | null;
+  license: string | null;
+  status?: string;
+  features?: PlanFeatures;
+}
+
 interface PlanCtx {
   plan: string;
   features: PlanFeatures;
@@ -41,7 +49,7 @@ interface PlanCtx {
   cancelAtPeriodEnd: boolean; // cancelamento agendado (Stripe Portal)
   currentPeriodEnd: string | null; // fim do período pago
   refresh: () => Promise<void>;
-  startTrial: (plan: string) => Promise<void>;
+  startTrial: (plan: string) => Promise<TrialResult>;
   openCheckout: (plan: string, billing: string) => Promise<string | null>;
   openPortal: () => Promise<string | null>; // Stripe Customer Portal
 }
@@ -76,6 +84,7 @@ const Ctx = createContext<PlanCtx>(null as unknown as PlanCtx);
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const { activeProject } = useProject();
+  const accountId = session ? String(session.user.user_key || session.user.id) : null;
   const [plan, setPlan] = useState("free");
   const [features, setFeatures] = useState<PlanFeatures>(FREE_FEATURES);
   const [status, setStatus] = useState("free");
@@ -95,7 +104,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
     try {
       // 1. Valida licença local primeiro (funciona offline)
-       const localResult = await validateStoredLicense(session.user.user_key || session.user.id);
+      const localResult = await validateStoredLicense(accountId || session.user.id);
       if (localResult.valid) {
         setPlan(localResult.plan);
         setFeatures(normalizeFeatures(localResult.features));
@@ -107,7 +116,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       if (navigator.onLine) {
         const headers: Record<string, string> = {};
         if (activeProject?.id) headers["X-Project-Id"] = activeProject.id;
-        const res = await fetch("/api/upgrade/license", { credentials: "include", headers });
+        const res = await fetch("/api/upgrade/license", { credentials: "include", headers, cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           setPlan(data.plan);
@@ -119,9 +128,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           setIsCollaborator(activeProject ? !activeProject.isOwner : !!data.isCollaborator);
 
           if (data.license) {
-            setStoredLicense(data.license);
+            setStoredLicense(data.license, accountId || undefined);
           } else {
-            setStoredLicense(null);
+            setStoredLicense(null, accountId || undefined);
           }
 
           if (data.trialEnd) {
@@ -149,7 +158,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [session, activeProject?.id, activeProject?.isOwner]);
+  }, [session, accountId, activeProject?.id, activeProject?.isOwner]);
 
   // Inicialização: clock guard + integrity + license
   useEffect(() => {
@@ -189,18 +198,53 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     };
   }, [session, fetchLicense]);
 
-  const startTrial = useCallback(async (planId: string) => {
+  const startTrial = useCallback(async (planId: string): Promise<TrialResult> => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (activeProject?.id) headers["X-Project-Id"] = activeProject.id;
     const res = await fetch("/api/upgrade/trial", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       credentials: "include",
+      cache: "no-store",
       body: JSON.stringify({ plan: planId }),
     });
-    const data = await res.json();
+    const data = (await res.json().catch(() => ({}))) || {};
     if (!res.ok) throw new Error(data.error || "Erro ao iniciar trial");
-    if (data.license) setStoredLicense(data.license);
+
+    const trialEnd = typeof data.trialEnd === "string" ? data.trialEnd : null;
+    const license = typeof data.license === "string" ? data.license : null;
+    const result: TrialResult = {
+      plan: typeof data.plan === "string" ? data.plan : planId,
+      trialEnd,
+      license,
+      status: typeof data.status === "string" ? data.status : "trial",
+      features: data.features && typeof data.features === "object"
+        ? normalizeFeatures(data.features)
+        : undefined,
+    };
+    if (accountId && license) setStoredLicense(license, accountId);
+
+    // Aplica o resultado imediatamente para a tela reconhecer o trial mesmo
+    // que a busca subsequente da licença esteja temporariamente indisponível.
+    setPlan(result.plan);
+    if (result.features) setFeatures(result.features);
+    setStatus(result.status || "trial");
+    setTrialEnd(trialEnd);
+    if (trialEnd) {
+      const endMs = new Date(trialEnd).getTime();
+      if (Number.isFinite(endMs)) {
+        const remaining = Math.ceil((endMs - Date.now()) / (1000 * 60 * 60 * 24));
+        setTrialRemaining(Math.max(0, remaining));
+      } else {
+        setTrialRemaining(-1);
+      }
+    } else {
+      setTrialRemaining(-1);
+    }
+
     await fetchLicense();
-  }, [fetchLicense]);
+    return result;
+  }, [accountId, activeProject?.id, fetchLicense]);
 
   const openCheckout = useCallback(async (planId: string, billing: string): Promise<string | null> => {
     const res = await fetch("/api/upgrade/checkout", {

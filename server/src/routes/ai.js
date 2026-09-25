@@ -660,7 +660,6 @@ async function activePlanForRequest(req) {
       const subscriptions = await col("subscriptions");
       const subscription = await subscriptions.findOne({ $or: values.map((value) => ({ user_id: value })) });
        return getSubscriptionPlan(subscription);
-      return subscription?.plan || "free";
     }
   } catch {
   }

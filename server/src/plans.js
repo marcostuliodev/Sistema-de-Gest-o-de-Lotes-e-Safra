@@ -101,22 +101,29 @@ export function formatPrice(centavos) {
 /** Lista de planos pagos (exclui free). */
 export const PAID_PLANS = ["basico", "pro", "premium"];
 
+/** Retorna o fim do trial em ms, usando current_period_end ou a data de início. */
+export function getTrialEnd(subscription) {
+  if (!subscription) return null;
+  const configuredEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end).getTime()
+    : NaN;
+  if (Number.isFinite(configuredEnd)) return configuredEnd;
+  const started = subscription.trial_started_at
+    ? new Date(subscription.trial_started_at).getTime()
+    : NaN;
+  return Number.isFinite(started) ? started + TRIAL_DAYS * 86400000 : null;
+}
+
 export function getSubscriptionPlan(subscription, now = Date.now()) {
   if (!subscription) return "free";
   const status = String(subscription.status || "").toLowerCase();
   if (status === "trial") {
-    const configuredEnd = subscription.current_period_end ? new Date(subscription.current_period_end).getTime() : NaN;
-    const started = subscription.trial_started_at ? new Date(subscription.trial_started_at).getTime() : NaN;
-    const trialEnd = Number.isFinite(configuredEnd)
-      ? configuredEnd
-      : Number.isFinite(started)
-        ? started + TRIAL_DAYS * 86400000
-        : NaN;
-    return Number.isFinite(trialEnd) && trialEnd > now && isValidPlan(subscription.trial_plan)
+    const trialEnd = getTrialEnd(subscription);
+    return trialEnd !== null && trialEnd > now && isValidPlan(subscription.trial_plan)
       ? subscription.trial_plan
       : "free";
   }
-  return ["active", "past_due"].includes(status) && isValidPlan(subscription.plan)
+  return ["active", "trialing", "past_due"].includes(status) && isValidPlan(subscription.plan)
     ? subscription.plan
     : "free";
 }

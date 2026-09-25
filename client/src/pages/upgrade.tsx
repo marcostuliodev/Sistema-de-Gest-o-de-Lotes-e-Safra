@@ -68,10 +68,13 @@ export default function Upgrade() {
   const [searchParams] = useSearchParams();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [trialStarted, setTrialStarted] = useState(false);
 
   const success = searchParams.get("success");
   const cancelled = searchParams.get("cancelled");
   const fromPortal = searchParams.get("portal");
+  const trial = searchParams.get("trial") === "1";
 
   useEffect(() => {
      if (success !== "1") return;
@@ -124,11 +127,13 @@ export default function Upgrade() {
 
   async function handleStartTrial(planId: string) {
     setBusy(planId);
+    setActionError("");
     try {
       await startTrial(planId);
+      setTrialStarted(true);
       navigate("/upgrade?trial=1");
     } catch (err) {
-      alert((err as Error).message);
+      setActionError((err as Error).message || "Não foi possível ativar o teste.");
     } finally {
       setBusy(null);
     }
@@ -136,11 +141,12 @@ export default function Upgrade() {
 
   async function handleCheckout(planId: string) {
     setBusy(planId);
+    setActionError("");
     try {
       const url = await openCheckout(planId, billing);
       if (url) window.location.href = url;
     } catch (err) {
-      alert((err as Error).message);
+      setActionError((err as Error).message || "Não foi possível abrir o pagamento.");
     } finally {
       setBusy(null);
     }
@@ -148,11 +154,12 @@ export default function Upgrade() {
 
   async function handlePortal() {
     setBusy("portal");
+    setActionError("");
     try {
       const url = await openPortal();
       if (url) window.location.href = url;
     } catch (err) {
-      alert((err as Error).message);
+      setActionError((err as Error).message || "Não foi possível abrir o portal.");
     } finally {
       setBusy(null);
     }
@@ -275,6 +282,18 @@ export default function Upgrade() {
         <div className="rounded-2xl bg-amber-50 p-4 text-center">
           <p className="font-semibold text-amber-800">Pagamento cancelado.</p>
           <p className="text-sm text-amber-700">Você pode tentar novamente quando quiser.</p>
+        </div>
+      )}
+      {(trialStarted || trial) && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-center" role="status" aria-live="polite">
+          <p className="font-semibold text-green-800">Teste de 10 dias ativado!</p>
+          <p className="text-sm text-green-700">Seu plano já está ativo. Aproveite todos os recursos.</p>
+        </div>
+      )}
+      {actionError && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-center" role="alert" aria-live="assertive">
+          <p className="font-semibold text-red-800">Não foi possível concluir.</p>
+          <p className="text-sm text-red-700">{actionError}</p>
         </div>
       )}
 

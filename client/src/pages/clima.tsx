@@ -268,7 +268,7 @@ function ClimaContent() {
 
   if (!loc) {
     return (
-      <div className="space-y-5 pb-8">
+      <div className="w-full min-w-0 max-w-full space-y-5 overflow-x-hidden pb-8">
         <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-900 via-sky-800 to-emerald-900 p-6 text-white shadow-xl shadow-sky-950/10 sm:p-8">
           <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-amber-300/20 blur-3xl" aria-hidden="true" />
           <div className="relative max-w-xl">
@@ -277,7 +277,7 @@ function ClimaContent() {
             <p className="mt-3 text-sm leading-6 text-sky-100">Escolha a localização da fazenda para acompanhar temperatura, chuva, UV e alertas em tempo real.</p>
           </div>
         </section>
-        <Card className="!overflow-hidden !rounded-[2rem] !p-0">
+        <Card className="w-full min-w-0 max-w-full !overflow-hidden !rounded-[2rem] !p-0">
           <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
             <h2 className="text-lg font-black text-stone-900">Onde fica sua propriedade?</h2>
             <p className="mt-1 text-sm text-stone-500">Busque uma cidade ou use sua localização atual.</p>
@@ -329,14 +329,14 @@ function ClimaContent() {
     : [];
 
   return (
-    <div className="space-y-4 pb-8 sm:space-y-6">
-      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-900 via-sky-800 to-emerald-900 p-5 text-white shadow-xl shadow-sky-950/10 sm:p-7">
+    <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden pb-8 sm:space-y-6">
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-900 via-sky-800 to-emerald-900 p-4 text-white shadow-xl shadow-sky-950/10 sm:p-7">
         <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-amber-300/20 blur-3xl" aria-hidden="true" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
+        <div className="relative flex w-full min-w-0 flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="w-full min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Clima da propriedade</p>
             <h1 className="mt-2 break-words text-2xl font-black tracking-tight sm:text-3xl">{loc.city || "Sua propriedade"}</h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-sky-100">Previsão, índice UV e alertas para decidir o melhor momento para cuidar do campo.</p>
+            <p className="mt-2 max-w-full break-words text-sm leading-6 text-sky-100">Previsão, índice UV e alertas para decidir o melhor momento para cuidar do campo.</p>
           </div>
           <Button onClick={() => void loadWeather()} disabled={refreshing} className="w-full !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 sm:w-auto">
             {refreshing ? "Atualizando…" : "Atualizar previsão"}
@@ -348,11 +348,11 @@ function ClimaContent() {
 
       {/* Atual */}
       {cur && code && (
-        <Card className="!overflow-hidden !rounded-[2rem] !border-0 !p-0 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-lg shadow-emerald-900/5">
-          <div className="flex items-center justify-between gap-4 p-5 sm:p-7">
+        <Card className="w-full min-w-0 max-w-full !overflow-hidden !rounded-[2rem] !border-0 !p-0 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-lg shadow-emerald-900/5">
+          <div className="flex items-center justify-between gap-3 p-4 sm:p-7">
             <div className="min-w-0">
               <div className="flex items-center gap-2"><span className="text-2xl" aria-hidden="true">{code.icon}</span><p className="text-sm font-bold text-stone-500">{code.label}</p></div>
-              <p className="mt-2 text-6xl font-black tracking-[-0.05em] text-stone-950 sm:text-7xl">{formatNumber(cur.temperature_2m)}°</p>
+              <p className="mt-2 text-5xl font-black tracking-[-0.05em] text-stone-950 sm:text-7xl">{formatNumber(cur.temperature_2m)}°</p>
               <p className="mt-1 text-sm font-semibold text-stone-500">Sensação térmica de {formatNumber(cur.apparent_temperature)}°C</p>
             </div>
             <div className="hidden shrink-0 rounded-3xl bg-white/80 p-4 text-7xl shadow-sm sm:block" aria-hidden="true">{code.icon}</div>
@@ -387,7 +387,7 @@ function ClimaContent() {
 
       {/* Gráfico de temperatura/UV (24h) */}
       {upcomingHours.length > 0 && (
-        <Card>
+        <Card className="w-full min-w-0 max-w-full !p-4 sm:!p-5">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-stone-800">Temperatura e UV — próximas 24h</h2>
             <div className="flex items-center gap-3 text-xs text-stone-500">
@@ -405,7 +405,7 @@ function ClimaContent() {
 
       {/* Alertas atuais */}
       {weather && weather.alerts.length > 0 && (
-        <Card>
+        <Card className="w-full min-w-0 max-w-full">
           <h2 className="mb-3 font-bold text-stone-800">Alertas agora</h2>
           <ul className="space-y-2">
             {weather.alerts.map((a, i) => (
@@ -425,7 +425,7 @@ function ClimaContent() {
       )}
 
       {/* Notificações */}
-      <Card>
+      <Card className="w-full min-w-0 max-w-full">
         <h2 className="mb-2 font-bold text-stone-800">Notificações no celular</h2>
         {!pushSupported ? (
           <p className="text-sm text-stone-500">
@@ -466,13 +466,13 @@ function ClimaContent() {
 
       {/* Previsão por hora */}
       {upcomingHours.length > 0 && (
-        <Card>
+        <Card className="w-full min-w-0 max-w-full !p-4 sm:!p-5">
           <h2 className="mb-3 font-bold text-stone-800">Próximas horas</h2>
-          <div className="flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">
+          <div className="flex w-full min-w-0 max-w-full snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">
             {upcomingHours.map((h) => {
               const c = describeWeatherCode(h.weather_code);
               return (
-                 <div key={h.time} className="min-w-[88px] snap-start rounded-2xl border border-stone-100 bg-stone-50/70 p-3 text-center">
+                 <div key={h.time} className="min-w-[76px] snap-start rounded-2xl border border-stone-100 bg-stone-50/70 p-2.5 text-center">
                   <p className="text-xs text-stone-400">{fmtHour(h.time, tzOffset)}</p>
                   <p className="text-2xl">{c.icon}</p>
                    <p className="text-sm font-semibold text-stone-800">{formatNumber(h.temperature_2m)}°</p>
@@ -490,27 +490,27 @@ function ClimaContent() {
 
       {/* Previsão diária */}
       {weather && weather.daily.length > 0 && (
-        <Card>
+        <Card className="w-full min-w-0 max-w-full">
           <h2 className="mb-3 font-bold text-stone-800">Próximos dias</h2>
           <ul className="divide-y divide-stone-100">
             {weather.daily.map((d) => {
               const c = describeWeatherCode(d.weather_code);
               return (
-                 <li key={d.date} className="grid grid-cols-1 gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="text-2xl">{c.icon}</span>
-                    <div className="min-w-0">
-                       <p className="break-words font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
-                       <p className="break-words text-xs text-stone-400">{c.label}</p>
-                    </div>
-                  </div>
-                   <div className="flex flex-wrap items-center gap-3 text-sm sm:justify-end">
-                     <span className="text-stone-400">{formatNumber(d.temperature_2m_min)}°</span>
-                     <span className="font-semibold text-stone-800">{formatNumber(d.temperature_2m_max)}°</span>
-                     <span className="text-xs text-blue-600">{formatNumber(d.precipitation_sum, 1)}mm</span>
-                     <span className="text-xs text-amber-700">UV {formatNumber(d.uv_index_max, 1)}</span>
-                  </div>
-                </li>
+                 <li key={d.date} className="grid min-w-0 grid-cols-1 gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                   <div className="flex min-w-0 items-center gap-3">
+                     <span className="text-2xl">{c.icon}</span>
+                     <div className="min-w-0">
+                        <p className="break-words font-medium text-stone-800">{fmtDay(d.date, tzOffset)}</p>
+                        <p className="break-words text-xs text-stone-400">{c.label}</p>
+                     </div>
+                   </div>
+                    <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-stone-50 p-2 text-xs sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:gap-3 sm:bg-transparent sm:p-0 sm:text-sm">
+                      <span className="text-stone-400">Mín. {formatNumber(d.temperature_2m_min)}°</span>
+                      <span className="font-semibold text-stone-800">Máx. {formatNumber(d.temperature_2m_max)}°</span>
+                      <span className="text-blue-600">Chuva {formatNumber(d.precipitation_sum, 1)} mm</span>
+                      <span className="text-amber-700">UV {formatNumber(d.uv_index_max, 1)}</span>
+                   </div>
+                 </li>
               );
             })}
           </ul>
@@ -519,7 +519,7 @@ function ClimaContent() {
 
       {/* Histórico de alertas */}
       {history.length > 0 && (
-        <Card>
+        <Card className="w-full min-w-0 max-w-full">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-bold text-stone-800">Alertas enviados</h2>
             <Link to="/historico" className="text-xs font-medium text-green-700 underline-offset-2 hover:underline">
@@ -578,7 +578,7 @@ function WeatherChart({ hourly, offset }: { hourly: WeatherResponse["weather"]["
   const labelIdx = [0, 6, 12, 18].filter((i) => i < data.length);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-44 w-full" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Gráfico de temperatura e índice UV nas próximas 24 horas">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-40 min-w-0 w-full sm:h-44" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Gráfico de temperatura e índice UV nas próximas 24 horas">
       <defs>
         <linearGradient id="tempFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#16a34a" stopOpacity="0.25" />

@@ -46,15 +46,17 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
   const { plan: currentPlan, startTrial, openCheckout } = usePlan();
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
 
   async function handleStartTrial(planId: string) {
     setBusy(planId);
+    setActionError("");
     try {
       await startTrial(planId);
       onClose();
       window.location.reload();
     } catch (err) {
-      alert((err as Error).message);
+      setActionError((err as Error).message || "Não foi possível ativar o teste.");
     } finally {
       setBusy(null);
     }
@@ -62,11 +64,12 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
 
   async function handleCheckout(planId: string) {
     setBusy(planId);
+    setActionError("");
     try {
       const url = await openCheckout(planId, billing);
       if (url) window.location.href = url;
     } catch (err) {
-      alert((err as Error).message);
+      setActionError((err as Error).message || "Não foi possível abrir o pagamento.");
     } finally {
       setBusy(null);
     }
@@ -145,6 +148,12 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
           );
         })}
       </div>
+
+      {actionError && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-center text-sm text-red-700" role="alert" aria-live="assertive">
+          {actionError}
+        </div>
+      )}
 
       <p className="mt-4 text-center text-xs text-stone-400">
         Trial de 10 dias sem compromisso. Cancele quando quiser.

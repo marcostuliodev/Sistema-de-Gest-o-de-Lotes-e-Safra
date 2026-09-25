@@ -26,7 +26,7 @@ import { col, withMongoTransaction } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { projectMiddleware } from "../authz.js";
 import { asyncHandler } from "../asyncHandler.js";
-import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, getSubscriptionPlan, isValidPlan, isProjectCollaborator, resolveEffectivePlan } from "../plans.js";
+import { PLANS, PRICES, STRIPE_PRICE_IDS, TRIAL_DAYS, PAID_PLANS, getPlanFeatures, getSubscriptionPlan, getTrialEnd, isValidPlan, isProjectCollaborator, resolveEffectivePlan } from "../plans.js";
 import { generateLicense, verifyLicense, getPublicKeyPem } from "../license.js";
 import { checkClock } from "../clock-guard.js";
 import { reportIntegrity } from "../integrity.js";
@@ -398,9 +398,9 @@ router.post("/portal", authMiddleware, requireNotBlocked, asyncHandler(async (re
      const asCollab = !await ownsAnyProject(billingUser) && (legacyCollab || await isProjectCollaborator(billingKey));
      if (asCollab) {
        return res.status(403).json({ error: "Colaboradores nao podem gerenciar planos." });
-     }
+      }
 
-     if (!STRIPE_SECRET) {
+      if (!STRIPE_SECRET) {
        return res.status(503).json({ error: "Stripe nao configurado. Defina STRIPE_SECRET_KEY." });
      }
 
@@ -657,65 +657,91 @@ router.post("/trial", authMiddleware, requireNotBlocked, asyncHandler(async (req
       const legacyCollab = await collabsCol.findOne({ $or: billingIdentityValues(billingUser).map((value) => ({ user_id: value })), status: "active" });
       const asCollab = !await ownsAnyProject(billingUser) && (legacyCollab || await isProjectCollaborator(billingKey));
      if (asCollab) {
-      return res.status(403).json({ error: "Colaboradores nao podem gerenciar planos." });
-    }
+       return res.status(403).json({ error: "Colaboradores não podem gerenciar planos." });
+     }
 
-    const { plan } = req.body || {};
-    if (!isValidPlan(plan) || plan === "free") {
-      return res.status(400).json({ error: "Plano invalido" });
-    }
+     const { plan } = req.body || {};
+     if (!isValidPlan(plan) || plan === "free") {
+      return res.status(400).json({ error: "Plano inválido" });
+     }
 
     const subs = await col("subscriptions");
      const existing = await subs.findOne(subscriptionUserFilter(billingUser));
 
-     // Ja tem trial ou assinatura ativa/pendente. Não permitir que um unpaid
+     // Já tem assinatura ativa/pendente. Não permitir que unpaid/incomplete
      // seja convertido em trial e volte a conceder plano pago.
-     if (existing && ["active", "past_due", "unpaid", "incomplete", "incomplete_expired", "paused"].includes(String(existing.status || "").toLowerCase())) {
-       return res.status(400).json({ error: "Voce ja possui uma assinatura ativa ou pendente." });
+     const existingStatus = String(existing?.status || "").toLowerCase();
+     const hasPaidSubscription = ["active", "trialing"].includes(existingStatus)
+       && isValidPlan(existing?.plan)
+       && existing.plan !== "free";
+     const hasPendingSubscription = ["past_due", "unpaid", "incomplete", "incomplete_expired", "paused"].includes(existingStatus);
+     if (existing && (hasPaidSubscription || hasPendingSubscription)) {
+       return res.status(400).json({ error: "Você já possui uma assinatura ativa ou pendente." });
      }
-    // Trial só UMA vez por conta (enquanto ativo devolve o mesmo; expirado
-    // bloqueia novo trial — antes era possível reiniciar infinitamente).
+
+    // Trial só uma vez por conta. Um trial ainda ativo é idempotente para o
+    // mesmo plano; depois do vencimento, um novo trial é bloqueado.
     if (existing && existing.trial_started_at) {
-      const started = new Date(existing.trial_started_at);
-      const daysSince = (Date.now() - started.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince < TRIAL_DAYS) {
+      const trialEndMs = getTrialEnd(existing);
+      if (trialEndMs !== null && trialEndMs > Date.now()) {
         if (existing.trial_plan === plan) {
-          const trialEnd = new Date(started.getTime() + TRIAL_DAYS * 86400000);
+          const trialEnd = new Date(trialEndMs);
           let license = null;
-           try { license = generateLicense(billingKey, plan, null, trialEnd); } catch (e) { console.error("[trial] generateLicense error:", e.message); }
-          return res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+          try {
+            license = generateLicense(billingKey, plan, null, trialEnd);
+          } catch (e) {
+            console.error("[trial] generateLicense error:", e.message);
+          }
+          return res.json({
+            plan,
+            trialEnd: trialEnd.toISOString(),
+            status: "trial",
+            features: getPlanFeatures(plan),
+            license,
+          });
         }
-        return res.status(400).json({ error: "Voce ja esta testando o plano " + (PLANS[existing.trial_plan]?.label || existing.trial_plan) + "." });
+        return res.status(400).json({
+          error: "Você já está testando o plano " + (PLANS[existing.trial_plan]?.label || existing.trial_plan) + ".",
+        });
       }
-      return res.status(400).json({ error: "Voce ja utilizou o periodo de teste." });
+      return res.status(400).json({ error: "Você já utilizou o período de teste." });
     }
 
     const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000);
+    const nowIso = new Date().toISOString();
 
-     await subs.updateOne(
-       existing ? { _id: existing._id } : { user_id: billingKey },
-       {
-         $set: {
-           plan: "free",
-           status: "trial",
-          trial_started_at: new Date().toISOString(),
+    await subs.updateOne(
+      existing ? { _id: existing._id } : { user_id: billingKey },
+      {
+        $set: {
+          // O campo plan representa o plano efetivo durante o trial. A
+          // expiração volta explicitamente para free.
+          plan,
+          status: "trial",
+          trial_started_at: nowIso,
           trial_plan: plan,
-          current_period_start: new Date().toISOString(),
+          current_period_start: nowIso,
           current_period_end: trialEnd.toISOString(),
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso,
         },
       },
-       { upsert: !existing }
-     );
+      { upsert: !existing }
+    );
 
-     let license = null;
-     try {
-       license = generateLicense(billingKey, plan, null, trialEnd);
+    let license = null;
+    try {
+      license = generateLicense(billingKey, plan, null, trialEnd);
     } catch (e) {
       console.error("[trial] generateLicense error:", e.message);
     }
 
-    res.json({ plan, trialEnd: trialEnd.toISOString(), license });
+    res.json({
+      plan,
+      trialEnd: trialEnd.toISOString(),
+      status: "trial",
+      features: getPlanFeatures(plan),
+      license,
+    });
   } catch (e) {
     console.error("[trial] Erro:", e.message, e.stack);
     res.status(500).json({ error: IS_PROD ? "Erro interno no trial" : (e.message || "Erro interno no trial") });
@@ -759,32 +785,37 @@ router.get("/license", authMiddleware, projectMiddleware, asyncHandler(async (re
     }
 
     let activePlan = plan;
+    let responseStatus = String(sub.status || "free").toLowerCase();
+    let responseTrialEnd = null;
     let license = null;
+    const trialEndMs = getTrialEnd(sub);
 
-    if (sub.status === "trial" && sub.trial_started_at) {
-      const trialEnd = new Date(sub.trial_started_at);
-      trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
-
-      if (new Date() > trialEnd) {
+    if (responseStatus === "trial" && sub.trial_started_at) {
+      if (trialEndMs === null || trialEndMs <= Date.now()) {
         if (!isCollaborator) {
           await subs.updateOne(
-             { _id: sub._id },
+            { _id: sub._id },
             { $set: { status: "expired", plan: "free", updated_at: new Date().toISOString() } }
           );
         }
         activePlan = "free";
+        responseStatus = "expired";
       } else {
-         activePlan = getSubscriptionPlan(sub);
+        const trialPlan = isValidPlan(sub.trial_plan) ? sub.trial_plan : "free";
+        activePlan = getSubscriptionPlan(sub);
+        if (activePlan === "free") activePlan = trialPlan;
+        const trialEnd = new Date(trialEndMs);
+        responseTrialEnd = trialEnd.toISOString();
         try {
-           license = generateLicense(requestId, activePlan, null, trialEnd);
+          license = generateLicense(requestId, activePlan, null, trialEnd);
         } catch (e) {
           console.error("[license] generateLicense error:", e.message);
         }
       }
-    } else if ((sub.status === "active" || sub.status === "past_due") && sub.plan !== "free") {
+    } else if (["active", "trialing", "past_due"].includes(responseStatus) && sub.plan !== "free") {
       // past_due mantém acesso até o Stripe cancelar (deleted → deactivatePlan)
       try {
-         license = generateLicense(requestId, activePlan, sub.stripe_subscription_id);
+        license = generateLicense(requestId, activePlan, sub.stripe_subscription_id);
       } catch (e) {
         console.error("[license] generateLicense error:", e.message);
       }
@@ -794,10 +825,8 @@ router.get("/license", authMiddleware, projectMiddleware, asyncHandler(async (re
       plan: activePlan,
       features: getPlanFeatures(activePlan),
       license,
-      status: sub.status,
-      trialEnd: sub.status === "trial" && sub.trial_started_at
-        ? new Date(new Date(sub.trial_started_at).getTime() + TRIAL_DAYS * 86400000).toISOString()
-        : null,
+      status: responseStatus,
+      trialEnd: responseStatus === "trial" ? responseTrialEnd : null,
       // Estado de cancelamento (para UI: banner "cancelada em XX")
       cancelAtPeriodEnd: !!sub.cancel_at_period_end,
       currentPeriodEnd: sub.current_period_end || null,
