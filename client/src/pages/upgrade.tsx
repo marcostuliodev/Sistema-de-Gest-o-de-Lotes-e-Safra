@@ -14,7 +14,7 @@ const PLANS = [
     id: "basico",
     label: "Básico",
     price: "R$ 19,90",
-    annualPrice: "R$ 39,90",
+    annualPrice: "R$ 15,92",
     features: [
       "5 lotes",
       "15 plantios",
@@ -28,7 +28,7 @@ const PLANS = [
     id: "pro",
     label: "Pro",
     price: "R$ 29,90",
-    annualPrice: "R$ 119,90",
+    annualPrice: "R$ 23,92",
     features: [
       "20 lotes",
       "50 plantios",
@@ -42,7 +42,7 @@ const PLANS = [
     id: "premium",
     label: "Premium",
     price: "R$ 59,90",
-    annualPrice: "R$ 319,90",
+    annualPrice: "R$ 47,92",
     features: [
       "40 lotes",
       "100 plantios",
