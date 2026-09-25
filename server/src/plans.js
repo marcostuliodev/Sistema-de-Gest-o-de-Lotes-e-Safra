@@ -62,9 +62,9 @@ export const PLAN_KEYS = Object.keys(PLANS);
  * annual: preço mensal quando paga anual (desconto ~20%).
  */
 export const PRICES = Object.freeze({
-  basico: Object.freeze({ monthly: 4990, annual: 3990 }),
-  pro: Object.freeze({ monthly: 14990, annual: 11990 }),
-  premium: Object.freeze({ monthly: 39990, annual: 31990 }),
+  basico: Object.freeze({ monthly: 1990, annual: 3990 }),
+  pro: Object.freeze({ monthly: 2990, annual: 11990 }),
+  premium: Object.freeze({ monthly: 5990, annual: 31990 }),
 });
 
 /**
