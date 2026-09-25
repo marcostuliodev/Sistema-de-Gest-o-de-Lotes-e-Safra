@@ -268,49 +268,54 @@ function ClimaContent() {
 
   if (!loc) {
     return (
-      <div className="space-y-5">
-        <div>
-          <h1 className="text-xl font-bold text-stone-800">Clima & Alertas</h1>
-          <p className="text-sm text-stone-500">Defina a localização da propriedade para acompanhar o clima e receber alertas.</p>
-        </div>
-        <Card>
-          <Field label="Buscar cidade" hint="Digite o nome da cidade/localidade da propriedade.">
-             <div className="flex flex-col gap-2 sm:flex-row">
-               <TextInput
-                 value={geoQuery}
-                 onChange={(e) => setGeoQuery(e.target.value)}
-                 placeholder="Ex.: Cascavel, PR"
-                 onKeyDown={(e) => e.key === "Enter" && doGeocode()}
-                 className="w-full min-w-0 flex-1"
-               />
-               <Button onClick={doGeocode} disabled={geoBusy} className="w-full sm:w-auto">
-                 {geoBusy ? "Buscando…" : "Buscar"}
-               </Button>
-             </div>
-          </Field>
-          {geoMessage && <p className="mt-2 text-sm text-amber-700" role="status">{geoMessage}</p>}
-          {geoResults.length > 0 && (
-            <ul className="mt-3 divide-y divide-stone-100" aria-label="Cidades encontradas">
-              {geoResults.map((g) => (
-                <li key={`${g.latitude},${g.longitude}`}>
-                  <button
-                    onClick={() => selectGeo(g)}
-                    className="flex w-full items-center justify-between py-2.5 text-left hover:text-green-700"
-                  >
-                     <span className="min-w-0 break-words font-medium text-stone-800">{g.label}</span>
-                    <span className="text-xs text-stone-400">{g.timezone}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-4 border-t border-stone-100 pt-4">
-             <Button variant="subtle" onClick={useMyLocation} className="w-full">
-               📍 Usar minha localização atual
-             </Button>
+      <div className="space-y-5 pb-8">
+        <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-900 via-sky-800 to-emerald-900 p-6 text-white shadow-xl shadow-sky-950/10 sm:p-8">
+          <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-amber-300/20 blur-3xl" aria-hidden="true" />
+          <div className="relative max-w-xl">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Clima & Alertas</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Comece pela sua propriedade.</h1>
+            <p className="mt-3 text-sm leading-6 text-sky-100">Escolha a localização da fazenda para acompanhar temperatura, chuva, UV e alertas em tempo real.</p>
+          </div>
+        </section>
+        <Card className="!overflow-hidden !rounded-[2rem] !p-0">
+          <div className="border-b border-stone-100 px-5 py-4 sm:px-6">
+            <h2 className="text-lg font-black text-stone-900">Onde fica sua propriedade?</h2>
+            <p className="mt-1 text-sm text-stone-500">Busque uma cidade ou use sua localização atual.</p>
+          </div>
+          <div className="p-5 sm:p-6">
+            <Field label="Buscar cidade" hint="Digite o nome da cidade/localidade da propriedade.">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <TextInput
+                  value={geoQuery}
+                  onChange={(e) => setGeoQuery(e.target.value)}
+                  placeholder="Ex.: Cascavel, PR"
+                  onKeyDown={(e) => e.key === "Enter" && doGeocode()}
+                  className="w-full min-w-0 flex-1"
+                />
+                <Button onClick={doGeocode} disabled={geoBusy} className="w-full sm:w-auto">
+                  {geoBusy ? "Buscando…" : "Buscar cidade"}
+                </Button>
+              </div>
+            </Field>
+            {geoMessage && <p className="mt-2 text-sm text-amber-700" role="status">{geoMessage}</p>}
+            {geoResults.length > 0 && (
+              <ul className="mt-3 divide-y divide-stone-100" aria-label="Cidades encontradas">
+                {geoResults.map((g) => (
+                  <li key={`${g.latitude},${g.longitude}`}>
+                    <button type="button" onClick={() => selectGeo(g)} className="flex min-h-12 w-full items-center justify-between gap-3 py-3 text-left hover:text-green-700">
+                      <span className="min-w-0 break-words font-bold text-stone-800">{g.label}</span>
+                      <span className="shrink-0 text-xs text-stone-400">{g.timezone}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-5 border-t border-stone-100 pt-4">
+              <Button variant="subtle" onClick={useMyLocation} className="w-full">Usar minha localização atual</Button>
+            </div>
           </div>
         </Card>
-        {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+        {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
       </div>
     );
   }
@@ -324,31 +329,38 @@ function ClimaContent() {
     : [];
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-stone-800">Clima & Alertas</h1>
-          <p className="break-words text-sm text-stone-500">{loc.city || "Sua propriedade"}</p>
+    <div className="space-y-4 pb-8 sm:space-y-6">
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-900 via-sky-800 to-emerald-900 p-5 text-white shadow-xl shadow-sky-950/10 sm:p-7">
+        <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-amber-300/20 blur-3xl" aria-hidden="true" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-200">Clima da propriedade</p>
+            <h1 className="mt-2 break-words text-2xl font-black tracking-tight sm:text-3xl">{loc.city || "Sua propriedade"}</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-sky-100">Previsão, índice UV e alertas para decidir o melhor momento para cuidar do campo.</p>
+          </div>
+          <Button onClick={() => void loadWeather()} disabled={refreshing} className="w-full !border-white/20 !bg-white/10 !text-white hover:!bg-white/20 sm:w-auto">
+            {refreshing ? "Atualizando…" : "Atualizar previsão"}
+          </Button>
         </div>
-        <Button variant="ghost" onClick={() => void loadWeather()} disabled={refreshing} className="w-full sm:w-auto">
-          {refreshing ? "Atualizando…" : "Atualizar"}
-        </Button>
       </div>
 
       {error && <p className="text-sm text-amber-600" role="alert">{error}</p>}
 
       {/* Atual */}
       {cur && code && (
-        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 sm:p-5">
-          <div className="flex min-w-0 items-center justify-between gap-3">
+        <Card className="!overflow-hidden !rounded-[2rem] !border-0 !p-0 bg-gradient-to-br from-emerald-50 via-white to-sky-50 shadow-lg shadow-emerald-900/5">
+          <div className="flex items-center justify-between gap-4 p-5 sm:p-7">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-stone-500">{code.label}</p>
-              <p className="mt-1 text-5xl font-extrabold text-stone-800 sm:text-6xl">
-                {formatNumber(cur.temperature_2m)}°C
-              </p>
-              <p className="mt-1 text-sm text-stone-500">Sensação {formatNumber(cur.apparent_temperature)}°C</p>
+              <div className="flex items-center gap-2"><span className="text-2xl" aria-hidden="true">{code.icon}</span><p className="text-sm font-bold text-stone-500">{code.label}</p></div>
+              <p className="mt-2 text-6xl font-black tracking-[-0.05em] text-stone-950 sm:text-7xl">{formatNumber(cur.temperature_2m)}°</p>
+              <p className="mt-1 text-sm font-semibold text-stone-500">Sensação térmica de {formatNumber(cur.apparent_temperature)}°C</p>
             </div>
-            <div className="shrink-0 text-5xl sm:text-7xl" aria-hidden="true">{code.icon}</div>
+            <div className="hidden shrink-0 rounded-3xl bg-white/80 p-4 text-7xl shadow-sm sm:block" aria-hidden="true">{code.icon}</div>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-emerald-100 border-t border-emerald-100/80 bg-white/60 text-center">
+            <div className="px-2 py-3"><p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">UV</p><p className="mt-1 font-black text-stone-800">{formatNumber(cur.uv_index, 1)}</p></div>
+            <div className="px-2 py-3"><p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Vento</p><p className="mt-1 font-black text-stone-800">{formatNumber(cur.wind_speed_10m)} <span className="text-xs font-semibold">km/h</span></p></div>
+            <div className="px-2 py-3"><p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Chuva</p><p className="mt-1 font-black text-stone-800">{formatNumber(cur.precipitation, 1)} <span className="text-xs font-semibold">mm</span></p></div>
           </div>
         </Card>
       )}
@@ -360,7 +372,7 @@ function ClimaContent() {
 
       {/* Detalhes */}
       {cur && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
           <Detail label="Umidade" value={`${formatNumber(cur.relative_humidity_2m)}%`} />
           <Detail label="Vento agora" value={`${formatNumber(cur.wind_speed_10m)} km/h ${windDir(cur.wind_direction_10m)}`} />
           <Detail label="Rajada da hora" value={`${formatNumber(cur.wind_gusts_10m)} km/h`} />
@@ -456,11 +468,11 @@ function ClimaContent() {
       {upcomingHours.length > 0 && (
         <Card>
           <h2 className="mb-3 font-bold text-stone-800">Próximas horas</h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">
             {upcomingHours.map((h) => {
               const c = describeWeatherCode(h.weather_code);
               return (
-                 <div key={h.time} className="min-w-[78px] rounded-xl border border-stone-100 p-2 text-center">
+                 <div key={h.time} className="min-w-[88px] snap-start rounded-2xl border border-stone-100 bg-stone-50/70 p-3 text-center">
                   <p className="text-xs text-stone-400">{fmtHour(h.time, tzOffset)}</p>
                   <p className="text-2xl">{c.icon}</p>
                    <p className="text-sm font-semibold text-stone-800">{formatNumber(h.temperature_2m)}°</p>
@@ -536,9 +548,9 @@ function formatNumber(value: unknown, digits = 0): string {
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-stone-200 bg-white p-3 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
-      <p className="mt-0.5 break-words text-sm font-semibold text-stone-800 tabular-nums">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-stone-200/80 bg-white p-3 shadow-sm shadow-stone-900/[0.03] sm:p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-stone-400">{label}</p>
+      <p className="mt-1 break-words text-sm font-black tabular-nums text-stone-800">{value}</p>
     </div>
   );
 }

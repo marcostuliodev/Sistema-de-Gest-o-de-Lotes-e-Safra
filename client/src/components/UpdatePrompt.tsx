@@ -11,7 +11,7 @@ export function UpdatePrompt() {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState("");
   const {
-    needRefresh: [needRefresh],
+    needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     immediate: true,
@@ -21,9 +21,35 @@ export function UpdatePrompt() {
   });
 
   useEffect(() => {
+    let disposed = false;
+
+    // O hook do Workbox normalmente registra o SW, mas o registro explícito
+    // mantém a atualização confiável em builds e evita deixar a tela presa em
+    // uma versão antiga quando o hook não inicializa.
+    const registerServiceWorker = async () => {
+      if (!("serviceWorker" in navigator)) return;
+      try {
+        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        if (disposed) return;
+        registrationRef.current = registration;
+        if (registration.waiting) setNeedRefresh(true);
+        await registration.update();
+        if (!disposed && registration.waiting) setNeedRefresh(true);
+      } catch {
+        // O hook ainda tenta registrar; em dev/server sem /sw.js isso é esperado.
+      }
+    };
+
+    void registerServiceWorker();
+
     const checkForUpdate = () => {
       if (navigator.onLine) {
-        void registrationRef.current?.update().catch(() => undefined);
+        const registration = registrationRef.current;
+        if (registration) {
+          void registration.update().then(() => {
+            if (registration.waiting) setNeedRefresh(true);
+          }).catch(() => undefined);
+        }
       }
     };
     const onVisibilityChange = () => {
@@ -32,15 +58,18 @@ export function UpdatePrompt() {
 
     const intervalId = window.setInterval(checkForUpdate, 30_000);
     window.addEventListener("online", checkForUpdate);
+    window.addEventListener("pageshow", checkForUpdate);
     document.addEventListener("visibilitychange", onVisibilityChange);
     checkForUpdate();
 
     return () => {
+      disposed = true;
       window.clearInterval(intervalId);
       window.removeEventListener("online", checkForUpdate);
+      window.removeEventListener("pageshow", checkForUpdate);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [setNeedRefresh]);
 
   if (!needRefresh) return null;
 
@@ -79,6 +108,10 @@ export function UpdatePrompt() {
       if (!changed) {
         setError("A atualização demorou. Toque em Atualizar novamente.");
         setApplying(false);
+      } else {
+        // Garante que a página execute o bundle novo, mesmo quando o
+        // controllerchange ocorre antes de o Workbox resolver a promise.
+        window.location.reload();
       }
     } catch {
       setError("Não foi possível atualizar. Tente novamente.");
@@ -89,8 +122,9 @@ export function UpdatePrompt() {
   return (
     <div
       className="fixed inset-x-3 top-3 z-[100] mx-auto max-w-lg rounded-2xl border border-green-200 bg-white p-4 shadow-2xl sm:left-auto sm:right-4 sm:top-4 sm:w-[390px]"
-      role="status"
-      aria-live="polite"
+      role="alert"
+      aria-live="assertive"
+      aria-label="Atualização do aplicativo disponível"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-100 text-xl text-green-700" aria-hidden="true">

@@ -12,7 +12,8 @@ const PLANS = [
     label: "Básico",
     price: "R$ 19,90",
     annualPrice: "R$ 15,92",
-     features: ["5 lotes", "15 plantios", "Relatórios avançados", "Clima & Alertas"],
+    annualTotal: "R$ 191,04/ano",
+    features: ["5 lotes", "15 plantios", "5 análises de IA/dia", "Relatórios avançados", "Clima & Alertas"],
     color: "green",
   },
   {
@@ -20,7 +21,8 @@ const PLANS = [
     label: "Pro",
     price: "R$ 29,90",
     annualPrice: "R$ 23,92",
-     features: ["20 lotes", "50 plantios", "Relatórios avançados", "Clima & Alertas"],
+    annualTotal: "R$ 287,04/ano",
+    features: ["20 lotes", "50 plantios", "15 análises de IA/dia", "Relatórios avançados", "Clima & Alertas"],
     color: "blue",
   },
   {
@@ -28,7 +30,8 @@ const PLANS = [
     label: "Premium",
     price: "R$ 59,90",
     annualPrice: "R$ 47,92",
-    features: ["40 lotes", "100 plantios", "Relatórios avançados", "Clima & Alertas"],
+    annualTotal: "R$ 575,04/ano",
+    features: ["40 lotes", "100 plantios", "40 análises de IA/dia", "Relatórios avançados", "Clima & Alertas"],
     color: "purple",
   },
 ];
@@ -71,25 +74,11 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
 
   return (
     <Modal open={open} onClose={onClose} title="Escolha seu plano" wide>
-      {/* Toggle mensal/anual */}
-      <div className="mb-5 flex items-center justify-center gap-3">
-        <span className={`text-sm font-medium ${billing === "monthly" ? "text-stone-800" : "text-stone-400"}`}>
-          Mensal
-        </span>
-        <button
-          onClick={() => setBilling(billing === "monthly" ? "annual" : "monthly")}
-          className={`relative h-6 w-11 rounded-full transition-colors ${billing === "annual" ? "bg-green-600" : "bg-stone-300"}`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-              billing === "annual" ? "left-5.5 translate-x-0" : "left-0.5"
-            }`}
-            style={{ left: billing === "annual" ? "22px" : "2px" }}
-          />
-        </button>
-        <span className={`text-sm font-medium ${billing === "annual" ? "text-stone-800" : "text-stone-400"}`}>
-          Anual <Badge tone="green">-20%</Badge>
-        </span>
+      <div className="mb-5 flex justify-center">
+        <div className="grid w-full max-w-xs grid-cols-2 gap-1 rounded-2xl border border-stone-200 bg-stone-50 p-1" role="group" aria-label="Periodicidade de cobrança">
+          <button type="button" onClick={() => setBilling("monthly")} className={`min-h-11 rounded-xl px-3 text-sm font-black transition ${billing === "monthly" ? "bg-white text-stone-900 shadow-sm" : "text-stone-500"}`} aria-pressed={billing === "monthly"}>Mensal</button>
+          <button type="button" onClick={() => setBilling("annual")} className={`min-h-11 rounded-xl px-3 text-sm font-black transition ${billing === "annual" ? "bg-green-700 text-white shadow-sm" : "text-stone-500"}`} aria-pressed={billing === "annual"}>Anual <span className="ml-1 text-[10px] text-green-200">-20%</span></button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -120,6 +109,7 @@ export function UpgradeModal({ open, onClose, highlight }: UpgradeModalProps) {
                 <span className="text-2xl font-extrabold text-stone-800">{price}</span>
                 <span className="text-sm text-stone-500">{period}</span>
               </div>
+              {billing === "annual" && <p className="mt-1 text-xs font-semibold text-green-700">Total: {p.annualTotal}</p>}
               <ul className="mt-3 space-y-1.5">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm text-stone-600">

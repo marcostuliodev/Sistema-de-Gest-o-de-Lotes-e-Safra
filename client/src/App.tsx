@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import { ProjectProvider } from "./store/project";
 import { PlanProvider } from "./store/plan";
@@ -22,6 +22,7 @@ const Colaboradores = lazy(() => import("./pages/colaboradores"));
 const AgroIA = lazy(() => import("./pages/ia"));
 const ForgotPassword = lazy(() => import("./pages/forgot-password"));
 const ResetPassword = lazy(() => import("./pages/reset-password"));
+const Landing = lazy(() => import("./pages/landing"));
 
 function Loading() {
   return <p className="p-6 text-sm text-stone-400">Carregando…</p>;
@@ -29,10 +30,31 @@ function Loading() {
 
 export default function App() {
   const { session } = useAuth();
+  const location = useLocation();
+
+  if (location.pathname === "/inicio") {
+    return <Suspense fallback={<Loading />}><Landing /></Suspense>;
+  }
 
   if (!session) {
     return (
       <Routes>
+        <Route
+          path="/"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Landing />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/inicio"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Landing />
+            </Suspense>
+          }
+        />
         <Route path="/login" element={<Login />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route
