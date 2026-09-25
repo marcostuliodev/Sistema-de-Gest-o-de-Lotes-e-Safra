@@ -1,7 +1,6 @@
 import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "../store/auth";
-import { useProject } from "../store/project";
 import { usePlan } from "../store/plan";
 import { CloudCheck, CloudOff, Grid, Leaf, Logout, WifiOff, Users } from "../components/icons";
 import { Badge } from "../components/ui";
@@ -53,16 +52,8 @@ function Sparkles({}: {}) {
   );
 }
 
-function roleLabel(isOwner: boolean, role: string | null): string {
-  if (isOwner) return "Proprietário";
-  if (role === "admin") return "Administrador";
-  if (role === "viewer") return "Visualizador";
-  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Sem papel";
-}
-
 export default function Layout() {
   const { session, logout, pendingSync, online, resendVerification, syncError } = useAuth();
-  const { projects, activeProject, switchProject, switching } = useProject();
   const { plan, trialRemaining, status, blocked, clockWarning, isCollaborator, loading: planLoading } = usePlan();
   const navigate = useNavigate();
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -154,25 +145,6 @@ export default function Layout() {
           <span className="hidden text-sm font-extrabold text-stone-800 sm:inline">Agrolote</span>
         </div>
         <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none">
-          <div className="min-w-0 max-w-[10rem] flex-1 sm:w-52 sm:max-w-none sm:flex-none">
-            <label htmlFor="active-project" className="sr-only">Projeto ativo</label>
-            <select
-              id="active-project"
-              value={activeProject?.id || ""}
-              onChange={(event) => void switchProject(event.target.value)}
-              disabled={switching}
-              className="h-9 w-full min-w-0 rounded-lg border border-stone-200 bg-stone-50 px-2 text-xs font-semibold text-stone-700 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100 disabled:opacity-60"
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name || project.nome} · {roleLabel(project.isOwner, project.role)}
-                </option>
-              ))}
-            </select>
-            <p className="mt-0.5 truncate px-0.5 text-[10px] text-stone-400">
-              {activeProject ? roleLabel(activeProject.isOwner, activeProject.role) : "Carregando..."}
-            </p>
-          </div>
           <div className="hidden items-center gap-2 sm:flex">
             {planLoading ? null : isCollaborator ? (
               <Badge tone="green">Colaborador</Badge>

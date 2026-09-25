@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { usePlan } from "../store/plan";
+import { useProject } from "../store/project";
 import { Badge, Button } from "./ui";
 import {
   Chart,
@@ -73,6 +74,7 @@ interface AccountMenuProps {
 export function AccountMenu({ open, onClose }: AccountMenuProps) {
   const { session, logout, pendingSync, online, resendVerification } = useAuth();
   const { plan, features, status, trialRemaining, isCollaborator, ownerName, loading, cancelAtPeriodEnd } = usePlan();
+  const { projects, activeProject, switchProject, switching } = useProject();
   const navigate = useNavigate();
   const [resendBusy, setResendBusy] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
@@ -212,6 +214,26 @@ export function AccountMenu({ open, onClose }: AccountMenuProps) {
               </div>
             )}
           </section>
+
+          {projects.length > 1 && (
+            <section>
+              <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-stone-400">Projeto ativo</h3>
+              <select
+                aria-label="Selecionar projeto"
+                value={activeProject?.id || ""}
+                onChange={(event) => void switchProject(event.target.value)}
+                disabled={switching}
+                className="h-11 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 text-sm font-medium text-stone-700 outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100 disabled:opacity-60"
+              >
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name || project.nome}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-stone-400">A troca atualiza os dados e a sincronização do projeto.</p>
+            </section>
+          )}
 
           {/* ── Plano ── (nada de UI de upgrade antes do fetch e para colaboradores) */}
           {loading ? (

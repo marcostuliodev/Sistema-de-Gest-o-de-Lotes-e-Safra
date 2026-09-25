@@ -54,94 +54,11 @@ const SUGGESTIONS = [
   "Sinais de fungo em folhas de orquídea",
 ];
 
-type ContextFlagKey = keyof AiContextFlags;
-
 const DEFAULT_CONTEXT_FLAGS: Required<AiContextFlags> = {
   include_project: true,
   include_location: true,
   include_weather: true,
 };
-
-const CONTEXT_LABELS: Record<string, string> = {
-  projeto: "projeto",
-  lotes: "lotes",
-  plantios_ativos: "plantios ativos",
-  insumos: "insumos",
-  gastos: "gastos",
-  colheitas: "colheitas",
-  localizacao: "localização",
-  clima: "clima",
-};
-
-function ContextSummary({
-  projectName,
-  flags,
-  usedContext,
-  onToggle,
-}: {
-  projectName: string;
-  flags: Required<AiContextFlags>;
-  usedContext?: AiContextUsed;
-  onToggle: (key: ContextFlagKey, value: boolean) => void;
-}) {
-  const categories = usedContext?.categories || [];
-  return (
-    <section className="rounded-2xl border border-stone-200 bg-stone-50/80 p-3 sm:p-4" aria-label="Contexto usado pela IA">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-wide text-stone-500">Contexto da IA</p>
-          <p className="mt-1 break-words text-sm font-semibold text-stone-800">Projeto: {projectName}</p>
-        </div>
-        <Badge tone="green">Selecionado pelo servidor</Badge>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-stone-600">
-        <span className="rounded-full bg-white px-2.5 py-1">Registros: {flags.include_project ? "lotes, plantios ativos, insumos, gastos e colheitas" : "desativados"}</span>
-        <span className="rounded-full bg-white px-2.5 py-1">Localização: {flags.include_location ? "incluída se configurada" : "desativada"}</span>
-        <span className="rounded-full bg-white px-2.5 py-1">Clima: {flags.include_weather ? "atual e próximas horas" : "desativado"}</span>
-      </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
-          <input
-            type="checkbox"
-            checked={flags.include_project}
-            onChange={(event) => onToggle("include_project", event.target.checked)}
-            className="h-4 w-4 accent-green-700"
-          />
-          Usar registros do projeto
-        </label>
-        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
-          <input
-            type="checkbox"
-            checked={flags.include_location}
-            onChange={(event) => onToggle("include_location", event.target.checked)}
-            className="h-4 w-4 accent-green-700"
-          />
-          Usar localização
-        </label>
-        <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-700">
-          <input
-            type="checkbox"
-            checked={flags.include_weather}
-            onChange={(event) => onToggle("include_weather", event.target.checked)}
-            className="h-4 w-4 accent-green-700"
-          />
-          Usar clima
-        </label>
-      </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-stone-500">
-        O projeto não pode ser alterado pela IA. O servidor envia apenas o contexto autorizado deste projeto.
-      </p>
-      {categories.length > 0 && (
-        <p className="mt-2 break-words text-[11px] text-stone-500">
-          Última resposta: {categories.map((category) => CONTEXT_LABELS[category] || category).join(", ")}.
-        </p>
-      )}
-      {usedContext?.warnings && usedContext.warnings.length > 0 && (
-        <p className="mt-1 text-[11px] text-amber-700">{usedContext.warnings.join(" ")}</p>
-      )}
-    </section>
-  );
-}
 
 function UsageBar({ usage }: { usage: AiUsage | null }) {
   if (!usage) return null;
@@ -570,7 +487,7 @@ export default function AgroIA() {
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [loadError, setLoadError] = useState("");
   const [contextFlags, setContextFlags] = useState<Required<AiContextFlags>>(DEFAULT_CONTEXT_FLAGS);
-  const [usedContext, setUsedContext] = useState<AiContextUsed | undefined>();
+  const [, setUsedContext] = useState<AiContextUsed | undefined>();
   const navigate = useNavigate();
   const { isCollaborator } = usePlan();
   const contextOptions = useMemo(() => contextFlags, [contextFlags]);
@@ -631,16 +548,6 @@ export default function AgroIA() {
       {loadError && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{loadError}</p>
       )}
-
-      <ContextSummary
-        projectName={activeProject?.name || activeProject?.nome || "Projeto ativo"}
-        flags={contextFlags}
-        usedContext={usedContext}
-        onToggle={(key, value) => {
-          setContextFlags((current) => ({ ...current, [key]: value }));
-          setUsedContext(undefined);
-        }}
-      />
 
       <div className="flex gap-1 rounded-xl bg-stone-100 p-1">
         {(
