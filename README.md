@@ -79,7 +79,7 @@ Deploy gratuito no Render: **https://agrolote.marcostuliogc.com.br**
 | **API** | Express | 4.21 |
 | **Banco** | MongoDB | MongoDB Atlas/cluster persistente via `MONGODB_URI` |
 | **Auth** | JWT (HS256) + bcryptjs | 9.0 / 2.4 |
-| **Validação** | Zod | 3.25 |
+| **Validação** | Zod | 4.6.7 |
 | **Segurança** | Helmet, express-rate-limit | 8.3 / 8.6 |
 | **Frontend** | React 18 + Vite 5 + TypeScript | 18 / 5 / 5 |
 | **Offline DB** | Dexie.js (IndexedDB) | 4.0 |
